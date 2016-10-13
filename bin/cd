@@ -1,0 +1,10 @@
+--[[
+  moonux-bin:cd
+  Change directory
+  
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+local par = {...}
+if par == 0 then print(shell.dir()) else shell.setDir(par[1]) end

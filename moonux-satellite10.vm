@@ -1,0 +1,10 @@
+--[[
+  moonux-boot:vmfile
+  Moonux Satellite 10 .vm file
+  Setups the Moonux environment
+  
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+shell.run("/vit/vinit.d")

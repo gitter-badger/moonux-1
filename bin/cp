@@ -1,0 +1,11 @@
+--[[
+  moonux-bin:cp
+  Copy directories and files
+  
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+local par = {...}
+if #par < 3 then print("Usage: cp <source> <destination>") end
+fs.copy(par[1], par[2])

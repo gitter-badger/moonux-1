@@ -1,0 +1,24 @@
+--[[
+  moonux-bin:drive
+  Copy directories and files
+  
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+local drives = {["hdd"] = "/", ["rom"] = "/rom/"}
+if fs.exists("/disk") then drives['mnt'] = "/disk/" end
+print("")
+print("drive| space ")
+print("-----+---------")
+for dn, dd in pairs(drives) do
+  write( fs.getDrive(dd) .. "  |  " )
+  local nSpace = fs.getFreeSpace(dd)
+  if nSpace >= 1000 * 1000 then
+    print( (math.floor( nSpace / (100 * 1000) ) / 10) .. "MB" )
+  elseif nSpace >= 1000 then
+    print( (math.floor( nSpace / 100 ) / 10) .. "KB" )
+  else
+    print( nSpace .. "B" )
+  end
+end

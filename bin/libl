@@ -1,0 +1,9 @@
+--[[
+  moonux-bin:libl
+  List libraries
+  
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+for k, v in pairs(io.list("/lib")) do print(v) end

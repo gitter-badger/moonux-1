@@ -1,0 +1,2868 @@
+--[[
+	ComputerCraft Nevardon IDE
+	Copyright (C) 2015	Quintuple Agent
+
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this program.	If not, see <http://www.gnu.org/licenses/>.
+]]--
+
+--[[
+Plans:
+Fix multi-line comment/string highlighting
+Create Popup 									X
+Get menu working								X
+Think up more functions	X(kinda)
+Highlight selection (mouse_drag)				X
+	Can use this to cut/copy/paste-over/delete	X
+Shortcut keys 									X (Sorta)
+Non-advanced computer support	(HA, HAHAHA)
+Main Menu
+	New
+	Load
+	Settings
+	Exit
+Themes											X (Sorta)
+	Create Custom Themes
+Toggle of highlighting of different keyword sets
+Change Menu key (default Left Alt)
+Change Shortcut key (default Left Crtl)
+Line numbers on side or listed at bottom
+Coding assist
+	When entering a '(' also create a ')' and move cursor in-between	X
+	Tabbing/indenting													X
+	Warning if there is an error in the code 							(Sorta, avaliable with Crtl+E)
+	Helping with built-in lua/cc functions (such as telling the user what needs to be entered in a function like peripheral.wrap( )<--Message saying needs a string)
+		Ability to tell users the description of how the function works
+			Warn if a function is missing a variable
+Tabs
+	Detect change in loaded files
+Settings to toggle/change all previously mentioned ideas
+			
+]]--
+
+--[[ ChangeLog
+0.10 Created
+0.20 Skipped all the way to .2, Added find, changed popups so they can be forced to an area of the screen, Shortcut keys added ,superSerious=false.
+0.21 Changed how key-words are detected, added code to files.save in-case a file is saved with no name, added to textColor and change it to themeColors, all graphics use themeColors
+0.22 Changed popups to allow multiple description lines (not just text warping), using errorCheck() now highlights the line number erring, added Run command
+0.30 Highlighting! works with cut/copy/delete
+0.31 Basic Settings Menu (does not currently Save settings)
+0.32 Added error catching, fixed problem then with find function
+0.33 Fixed cursor placement when highlighting, fixed problem with pasting from host clipboard, Added debug list to crash popup, crash popup will no longer display if the program was terminated.
+0.34 Better support for patterns in the find function
+0.40 Settings are now saved, Improved the Settings menu a bit, Scroll speed is now in settings.
+0.41 Fixed crash related to trying to highlight in areas where there was no text [Thanks LDDestroier]
+0.42 Fixed empty lines not being cleared when all lines on screen are not rendered
+0.43 Added Page up and Page down buttons
+0.44 Fixed multiline highlighting
+0.45 Fixed multiline, for real this time
+0.46 Increased performance, added multiline highlight setting, I hope I never have to modify my rendering routines ever again.
+0.47 Added autoIndent and rememberTab, added auto error checking, added setting to toggle bar at top, tabbing on a highlighted selection will now tab all lines within the selection
+0.48 Added Home, End, and Delete Keys. Added setting for bypassing the Window API, fixed problem with multiline highlight closing
+0.49 Added some non-advanced computer support. Added Hide Menu. Nope, no easter eggs added, why would you think that?
+0.50 "Halfway to Nevar" Added help system, When right-clicking, a popup with information about the function right-clicked on will appear, Fixed problem with trying to get a color for global vars that are user created. 
+0.51 Added custom help popup, now able to display examples of code for keyword help. Added word wrapping function.
+0.52 Added update button to the settings menu. Changed render code of settings menu. Added text wrapping to settings menu.
+0.53 Added support for opening a file when in a different directory, fixed help popup overwriting the help table.
+0.54 Fixed files that are opened not being closed by the program to allow editing outside of nevardon, Changed how the Home and End keys work
+]]
+
+local version=0.54
+local codeName="Nevardon"			--Yah, I will most likely not finish this D:
+local updateURL="http://pastebin.com/raw.php?i=5CpA2rrQ"
+local iam=shell.getRunningProgram()	--Path to nevardon
+local baseFile=".NevarFile"			--Directory where settings and backups are kept 
+local scr=term						--Just in case I ever want to use something else like monitors (how it would work, I have no idea, maybe someday they will add a wireless keyboard peripheral)
+local scrX,scrY=scr.getSize()		--Screen Size
+local tscrX,tscrY=scrX,scrY			--The true x and y
+scr.setCursorPos(1,tscrY)
+local renderStart={["x"]=0,["y"]=0}	--The leftmost character (x) and the top line (y) of the file to be drawn
+local renderSpace={["x"]=0,["y"]=1}	--Where rending starts on the screen +1 (x=1 will render on pixel 2))
+scrX=scrX-renderSpace.x
+scrY=scrY-renderSpace.y-1			-- -1 for menu
+local fileText={""}					--All the text in the file
+local startArgs={...}
+local startDir=shell.dir().."/"
+if startDir=="/" then startDir="" end
+local startFile=startArgs[1]		--File requested to be opened at launch
+if startFile then startFile=startDir..startFile end
+local keepEditing=true				--Keep the editor loop running
+local curLine=1						--Current Line the cursor is on
+local curChar=1						--Current X pos of the cursor
+local multiLine=false				--Used for multi-line strings/comments
+local isColor=scr.isColor()			--Is an advanced computer
+local loadedFile=""					--Currently Loaded File
+local shouldRedraw=false			--Should redraw the monitor
+local lastKey={nil,nil}				--Used for last key pressed and when
+local files={}						--File Functions
+local lines={}						--Line Functions
+local text={}						--Text Functions
+local tabTimer=nil					--Temporary until tabs are added
+local errorLine=nil					--Line erring
+local menuWait=false				--Used for hidden menus
+local highlight={}					--Use for line highlighting {{startLine,startChar}{endLine,endChar}}
+local themeColorsDefault={			--Colors used thoughout the program
+["background"]=colors.black	,		--Background
+["popBoxBack"]=colors.white,		--popup box
+["popBoxAlt"]=colors.lightGray,
+["popBoxButton"]=colors.lightGray,
+["popBoxText"]=colors.black,
+["contextBack"]=colors.gray,		--context boxes
+["contextText"]=colors.white,
+["highlightBack"]=colors.lightBlue,	--highlighted words
+["highlightText"]=colors.white,
+["menuBack"]=colors.lightGray,		--bottom menu
+["menuText"]=colors.black,
+["tabBack"]=colors.lightGray,		--top menu (tabs)
+["tabText"]=colors.black,
+["lineNBack"]=colors.lightGray,		--Line numbers
+["lineNText"]=colors.white,
+["lineError"]=colors.red,			--Line with error
+["lineCur"]=colors.green,			--Line with cursor
+["lineCurError"]=colors.orange,		--With with error and cursor
+["settingsBack"]=colors.white,		--Settings Menu
+["settingsText"]=colors.black,
+["settingsOff"]=colors.red,
+["settingsOn"]=colors.green,
+["settingsUndef"]=colors.lightBlue,
+["settingsNoEdit"]=colors.purple,
+["settingsLine"]=colors.gray,
+["settingsLineAlt"]=colors.lightGray,
+["settingsLineText"]=colors.white,
+
+["default"]=colors.white,			--Default text
+["comment"]=colors.lightBlue,
+["string"]=colors.lime,
+["number"]=colors.red,
+["bool"]=colors.orange,
+["operator"]=colors.lightBlue,
+["instructor"]=colors.purple,
+["luaVar"]=colors.blue,
+["luaFunc"]=colors.blue,
+["libraryWord"]=colors.purple,
+["ccWord"]=colors.lightBlue,
+}
+local themeColors=themeColorsDefault
+local settings={					--Default Settings
+["lineNBar"]={						--Line Number sidebar
+	["Name"]="Show Line Numbers",
+	["Desc"]="Should line numbers be show on the left side",
+	["Set"]=true,
+	["CanSet"]="bool"
+	},
+["menuBar"]={	
+	["Name"]="Show Menu",
+	["Desc"]="Show the menu at the bottom of the screen. If off, use left Alt to temporarily un-hide it.",
+	["Set"]=true,
+	["CanSet"]="bool"
+	},
+["autoErrChk"]={					--Automatically check for errors		(not used)
+	["Name"]="Auto Error Check",
+	["Desc"]="Automatically check for errors every time the cursor changes lines",
+	["Set"]=false,
+	["CanSet"]="bool"
+	},
+["funcHelp"]={						--Show A list of possible functions when typing		(not used)
+	["Name"]="Function Help",
+	["Desc"]="Show A list of possible functions when typing",
+	["Set"]=false,
+	["CanSet"]=false
+	},
+["autoAddClosers"]={				--Automatically add closers for items such as ( ) [ ] " " ' '
+	["Name"]="Auto Closers",
+	["Desc"]="Automatically add closers for items such as ( ) [ ] \" \" ' '",
+	["Set"]=true,
+	["CanSet"]="bool"
+	},
+["lineWrap"]={						--Text Wrapping		(not used)
+	["Name"]="Text Wrapping",
+	["Desc"]="Wrap text to fit the screen",
+	["Set"]=false,
+	["CanSet"]=false
+	},					
+["syntaxHL"]={						--Highlight Keywords
+	["Name"]="Syntax Highlighting",
+	["Desc"]="Highlight Lua and CC functions, keywords, operators, number, etc.",
+	["Set"]=true,
+	["CanSet"]="bool"
+	},
+["xScroll"]={
+	["Name"]="Scroll Speed",
+	["Desc"]="How many lines are passed when scrolling",
+	["Set"]=1,
+	["CanSet"]="positive"
+	},
+["superSerious"]={					--Don't Ask
+	["Name"]="Seriousness",
+	["Desc"]="No fun easter-eggs and other goofy stuff?",
+	["Set"]=true,
+	["CanSet"]="bool"
+	},
+["multiline"]={	
+	["Name"]="Offscreen Multiline Highlighting.",
+	["Desc"]="Calculate multiline highlights that are offscreen (May decrease performance)",
+	["Set"]=true,
+	["CanSet"]="bool"
+	},
+["autoIndent"]={	
+	["Name"]="Auto Indent",
+	["Desc"]="Automatically indent after the words such as 'then' 'else' 'do'",
+	["Set"]=true,
+	["CanSet"]="bool"
+	},
+["rememberTab"]={	
+	["Name"]="Remember Tab",
+	["Desc"]="When going to a new line, place the appropriate amount of tabs based on the previous line",
+	["Set"]=true,
+	["CanSet"]="bool"
+	},
+["tabsBar"]={	
+	["Name"]="Show Name Bar",
+	["Desc"]="Show a bar at the top of the screen with the filename.",
+	["Set"]=false,
+	["CanSet"]="bool"
+	},
+["bypassWindow"]={	
+	["Name"]="Bypass Window API",
+	["Desc"]="Bypasses the Window API to increase draw speed. Turning this on may increase performance however may break some OS's and other programs. You will need to restart the program for this to take effect",
+	["Set"]=true,
+	["CanSet"]="bool"		--Change this to false (no " " just as a bool to disallow changing the setting)
+	},
+}
+local contextSelect={				--Menu Options
+["File"]={
+	"New",
+	"Open",
+	"Open Dir",
+	"Save",
+	"Save As",
+--	"Save All",
+--	"Print",
+	"Close",
+--	"Close All",
+	"Run"
+	},
+["Edit"]={
+--	"Undo",
+--	"Redo",
+	"Cut Line",
+	"Chunk Cut",
+	"Copy Line",
+	"Chunk Copy",
+	"Paste",
+	"Delete Line",
+	"Chunk Delete",
+	},
+["Search"]={
+	"Find",
+	"Replace",
+--	"Find In Files",
+	},
+["View"]={
+	"Goto Line",
+--	"Change Tab",
+--	"Clipboard",
+--	"Functions",
+	"Help",
+	"Change Theme",
+	"Save Theme",
+	},
+["Settings"]={
+--	"Show Line Numbers",
+--	"Scroll Speed",
+--	"Change Theme",
+--	"Change Highlighting",
+--	"Change Language",
+	}
+}
+local printer=nil					--Used for printing
+for _,perSide in pairs(peripheral.getNames()) do	--Just in case they don't have 1.6 on up
+	if peripheral.getType(perSide)=="printer" then
+		printer=peripheral.wrap(perSide)
+		break
+	end
+end
+
+--Highlighting Keywords, All .functions (ex term.write, fs.open) are unused for right now due to a coding change, however will be used again when a help option / variable assist feature is implemented
+local keyWords={
+["local"]={["color"]=themeColors.instructor,["help"]=""},
+["function"]={["color"]=themeColors.instructor,["help"]=""},
+["end"]={["color"]=themeColors.instructor,["help"]="Closes the current statement",["ex"]={"if tue then","  print(\"hello World\")","end"}},
+
+["if"]={["color"]=themeColors.instructor,["help"]=""},
+["then"]={["color"]=themeColors.instructor,["help"]=""},
+["else"]={["color"]=themeColors.instructor,["help"]=""},
+["elseif"]={["color"]=themeColors.instructor,["help"]=""},
+
+["for"]={["color"]=themeColors.instructor,["help"]=""},
+["while"]={["color"]=themeColors.instructor,["help"]=""},
+["do"]={["color"]=themeColors.instructor,["help"]=""},
+["repeat"]={["color"]=themeColors.instructor,["help"]=""},
+["until"]={["color"]=themeColors.instructor,["help"]=""},
+["in"]={["color"]=themeColors.instructor,["help"]=""},
+
+["and"]={["color"]=themeColors.instructor,["help"]="Returns the statement on the right side if both statements are neither nil nor false, else returns the first nil or false statement",["ex"]={"10 and 20","  20","20 and 10","  10","nil and true","  nil","true and false","  false"}},
+["or"]={["color"]=themeColors.instructor,["help"]="Returns the statement on the left if it is neither nil nor false, else returns the statement on the right.",["ex"]={"10 or 20","  10","true or nil","  true","false or true","  true","nil or false","  false"}},
+["not"]={["color"]=themeColors.instructor,["help"]="Inverts the statement following it.",["ex"]={"not true","  false","not false","  true","not nil","  true","not \"hello\"","  false"}},
+
+["break"]={["color"]=themeColors.instructor,["help"]="Break out of a loop."},
+["next"]={["color"]=themeColors.instructor,["help"]=""},
+["return"]={["color"]=themeColors.instructor,["help"]="Escape the function and return the given variables.",["ex"]={"function test()","  return \"hello\"","end","print(test())","  hello"}},
+
+["="]={["color"]=themeColors.operator},
+["=="]={["color"]=themeColors.operator},
+["~="]={["color"]=themeColors.operator},
+["<="]={["color"]=themeColors.operator},
+[">="]={["color"]=themeColors.operator},
+["<"]={["color"]=themeColors.operator},
+[">"]={["color"]=themeColors.operator},
+
+["true"]={["color"]=themeColors.bool,["help"]="Boolean."},
+["false"]={["color"]=themeColors.bool,["help"]="Boolean."},
+["nil"]={["color"]=themeColors.bool,["help"]="Not equal to false, but will be treated as false in most statements.",["ex"]={"test=nil","if test then print(\"hello\") else print(\"error\") end","  error","false=nil","  false"}},
+["_G"]={["color"]=themeColors.luaVar,["help"]="The global environment table, all global variables are stored here."},
+["_VERSION"]={["color"]=themeColors.luaVar,["help"]="The current Lua interpreter version.",["ex"]={"print(_VERSION)","  Luaj-jse 2.0.3"}},
+["getmetatable"]={["color"]=themeColors.luaFunc,["help"]=""},
+["pairs"]={["color"]=themeColors.luaFunc,["help"]=""},
+["ipairs"]={["color"]=themeColors.luaFunc,["help"]=""},
+["print"]={["color"]=themeColors.luaFunc,["help"]="Write text to screen, then append a \\n (new line)."},
+["write"]={["color"]=themeColors.luaFunc,["help"]="Write text to screen."},
+["assert"]={["color"]=themeColors.luaFunc,["help"]=""},
+["error"]={["color"]=themeColors.luaFunc,["help"]=""},
+["dofile"]={["color"]=themeColors.luaFunc,["help"]=""},
+["loadfile"]={["color"]=themeColors.luaFunc,["help"]=""},
+["loadstring"]={["color"]=themeColors.luaFunc,["help"]=""},
+["getfenv"]={["color"]=themeColors.luaFunc,["help"]=""},
+["getmetatable"]={["color"]=themeColors.luaFunc,["help"]=""},
+["setfenv"]={["color"]=themeColors.luaFunc,["help"]=""},
+["setmetatable"]={["color"]=themeColors.luaFunc,["help"]=""},
+["pcall"]={["color"]=themeColors.luaFunc,["help"]=""},
+["rawequal"]={["color"]=themeColors.luaFunc,["help"]=""},
+["rawget"]={["color"]=themeColors.luaFunc,["help"]=""},
+["rawset"]={["color"]=themeColors.luaFunc,["help"]=""},
+["select"]={["color"]=themeColors.luaFunc,["help"]=""},
+["tonumber"]={["color"]=themeColors.luaFunc,["help"]=""},
+["tostring"]={["color"]=themeColors.luaFunc,["help"]=""},
+["unpack"]={["color"]=themeColors.luaFunc,["help"]=""},
+["xpcall"]={["color"]=themeColors.luaFunc,["help"]=""},
+
+["coroutine"]={["color"]=themeColors.luaFunc},
+["coroutine.create"]={["help"]=""},
+["coroutine.resume"]={["help"]=""},
+["coroutine.running"]={["help"]=""},
+["coroutine.status"]={["help"]=""},
+["coroutine.wrap"]={["help"]=""},
+["coroutine.yield"]={["help"]=""},
+
+["table"]={["color"]=themeColors.libraryWord},
+["table.concat"]={["help"]=""},
+["table.sort"]={["help"]=""},
+["table.insert"]={["help"]=""},
+["table.remove"]={["help"]=""},
+["table.maxn"]={["help"]=""},
+
+["string"]={["color"]=themeColors.libraryWord},
+["string.byte"]={["help"]=""},
+["string.char"]={["help"]=""},
+["string.dump"]={["help"]=""},
+["string.find"]={["help"]=""},
+["string.format"]={["help"]=""},
+["string.gmatch"]={["help"]=""},
+["string.gsub"]={["help"]=""},
+["string.len"]={["help"]=""},
+["string.lower"]={["help"]=""},
+["string.match"]={["help"]=""},
+["string.rep"]={["help"]=""},
+["string.reverse"]={["help"]=""},
+["string.sub"]={["help"]=""},
+["string.upper"]={["help"]=""},
+
+["io"]={["color"]=themeColors.libraryWord},
+["io.close"]={["help"]=""},
+["io.flush"]={["help"]=""},
+["io.input"]={["help"]=""},
+["io.lines"]={["help"]=""},
+["io.open"]={["help"]=""},
+["io.output"]={["help"]=""},
+["io.read"]={["help"]=""},
+["io.type"]={["help"]=""},
+["io.write"]={["help"]=""},
+
+["math"]={["color"]=themeColors.libraryWord},
+["math.abs"]={["help"]=""},
+["math.acos"]={["help"]=""},
+["math.asin"]={["help"]=""},
+["math.atan"]={["help"]=""},
+["math.atan2"]={["help"]=""},
+["math.ceil"]={["help"]=""},
+["math.floor"]={["help"]=""},
+["math.cos"]={["help"]=""},
+["math.sin"]={["help"]=""},
+["math.tan"]={["help"]=""},
+["math.cosh"]={["help"]=""},
+["math.sinh"]={["help"]=""},
+["math.tanh"]={["help"]=""},
+["math.deg"]={["help"]=""},
+["math.rad"]={["help"]=""},
+["math.exp"]={["help"]=""},
+["math.log"]={["help"]=""},
+["math.log10"]={["help"]=""},
+["math.pow"]={["help"]=""},
+["math.min"]={["help"]=""},
+["math.max"]={["help"]=""},
+["math.modf"]={["help"]=""},
+["math.fmod"]={["help"]=""},
+["math.sqrt"]={["help"]=""},
+["math.random"]={["help"]=""},
+["math.randomseed"]={["help"]=""},
+["math.frexp"]={["help"]=""},
+["math.ldexp"]={["help"]=""},
+["math.huge"]={["help"]=""},
+["math.pi"]={["help"]=""},
+
+["bit"]={["color"]=themeColors.ccWord},
+["bit.blshift"]={["help"]=""},
+["bit.brshift"]={["help"]=""},
+["bit.blogic_rshift"]={["help"]=""},
+["bit.bxor"]={["help"]=""},
+["bit.bor"]={["help"]=""},
+["bit.band"]={["help"]=""},
+["bit.bnot"]={["help"]=""},
+
+["colors"]={["color"]=themeColors.ccWord},
+["colours"]={["color"]=themeColors.ccWord},
+
+["commands"]={["color"]=themeColors.ccWord},
+["commands.exec"]={["help"]=""},
+["commands.execAsync"]={["help"]=""},
+["commands.list"]={["help"]=""},
+["commands.getBlockPosition"]={["help"]=""},
+["commands.getBlockInfo"]={["help"]=""},
+
+["disk"]={["color"]=themeColors.ccWord},
+["disk.isPresent"]={["help"]=""},
+["disk.hasData"]={["help"]=""},
+["disk.getMountPath"]={["help"]=""},
+["disk.setLabel"]={["help"]=""},
+["disk.getLabel"]={["help"]=""},
+["disk.getID"]={["help"]=""},
+["disk.hasAudio"]={["help"]=""},
+["disk.getAudioTitle"]={["help"]=""},
+["disk.playAduio"]={["help"]=""},
+["disk.stopAudio"]={["help"]=""},
+["disk.eject"]={["help"]=""},
+
+["fs"]={["color"]=themeColors.ccWord,["help"]="The File System Library"},
+["fs.list"]={["help"]=""},
+["fs.exists"]={["help"]=""},
+["fs.isDir"]={["help"]=""},
+["fs.isReadOnly"]={["help"]=""},
+["fs.getName"]={["help"]=""},
+["fs.getDrive"]={["help"]=""},
+["fs.getSize"]={["help"]=""},
+["fs.getFreeSpace"]={["help"]=""},
+["fs.makeDir"]={["help"]=""},
+["fs.move"]={["help"]=""},
+["fs.copy"]={["help"]=""},
+["fs.delete"]={["help"]=""},
+["fs.combine"]={["help"]=""},
+["fs.open"]={["help"]=""},
+["fs.find"]={["help"]=""},
+["fs.getDir"]={["help"]=""},
+
+["gps"]={["color"]=themeColors.ccWord},
+["gps.locate"]={["color"]=themeColors.ccWord,["help"]=""},
+
+["help"]={["color"]=themeColors.ccWord},
+["help.path"]={["help"]=""},
+["help.setPath"]={["help"]=""},
+["help.lookup"]={["help"]=""},
+["help.topics"]={["help"]=""},
+
+["http"]={["color"]=themeColors.ccWord},
+["http.request"]={["help"]=""},
+["http.get"]={["help"]=""},
+["http.post"]={["help"]=""},
+
+["keys"]={["color"]=themeColors.ccWord},
+["keys.getName"]={["help"]=""},
+--Don't feel like doing the entire constants list
+["multishell"]={["color"]=themeColors.ccWord,["help"]="Commands for creating and running multiple shells at once"},
+["multishell.getCurrent"]={["help"]=""},
+["multishell.getCount"]={["help"]=""},
+["multishell.launch"]={["help"]=""},
+["multishell.setFocus"]={["help"]=""},
+["multishell.setTitle"]={["help"]=""},
+["multishell.getTitle"]={["help"]=""},
+["multishell.getFocus"]={["help"]=""},
+["os"]={["color"]=themeColors.ccWord},
+["os.version"]={["help"]=""},
+["os.getComputerID"]={["help"]=""},
+["os.getComputerLabel"]={["help"]=""},
+["os.setComputerLabel"]={["help"]=""},
+["os.setComputerLabel"]={["help"]=""},
+["os.run"]={["help"]=""},
+["os.loadAPI"]={["help"]=""},
+["os.unloadAPI"]={["help"]=""},
+["os.pullEvent"]={["help"]=""},
+["os.pullEventRaw"]={["help"]=""},
+["os.queueEvent"]={["help"]=""},
+["os.clock"]={["help"]=""},
+["os.startTimer"]={["help"]=""},
+["os.cancelTimer"]={["help"]=""},
+["os.time"]={["help"]=""},
+["os.sleep"]={["help"]=""},
+["os.day"]={["help"]=""},
+["os.setAlarm"]={["help"]=""},
+["os.cancelAlarm"]={["help"]=""},
+["os.shutdown"]={["help"]=""},
+["os.reboot"]={["help"]=""},
+
+["paintutils"]={["color"]=themeColors.ccWord,["help"]="Extra drawing commands"},
+["paintutils.loadImage"]={["help"]=""},
+["paintutils.drawImage"]={["help"]=""},
+["paintutils.drawPixel"]={["help"]=""},
+["paintutils.drawLine"]={["help"]=""},
+["paintutils.drawBox"]={["help"]=""},
+["paintutils.drawFilledBox"]={["help"]=""},
+
+["parallel"]={["color"]=themeColors.ccWord,["help"]="Run 2 or more functions at the same time"},
+["parallel.waitForAny"]={["help"]=""},
+["parallel.waitForAll"]={["help"]=""},
+
+["peripheral"]={["color"]=themeColors.ccWord},
+["peripheral.isPresent"]={["help"]=""},
+["peripheral.getType"]={["help"]=""},
+["peripheral.getMethods"]={["help"]=""},
+["peripheral.call"]={["help"]=""},
+["peripheral.wrap"]={["help"]=""},
+["peripheral.find"]={["help"]=""},
+["peripheral.getNames"]={["help"]=""},
+
+["rednet"]={["color"]=themeColors.ccWord},
+["rednet.open"]={["help"]=""},
+["rednet.close"]={["help"]=""},
+["rednet.send"]={["help"]=""},
+["rednet.broadcast"]={["help"]=""},
+["rednet.receive"]={["help"]=""},
+["rednet.isOpen"]={["help"]=""},
+["rednet.host"]={["help"]=""},
+["rednet.unhost"]={["help"]=""},
+["rednet.lookup"]={["help"]=""},
+["rednet.run"]={["help"]=""},
+
+["redstone"]={["color"]=themeColors.ccWord},
+["redstone.getSides"]={["help"]=""},
+["redstone.getInput"]={["help"]=""},
+["redstone.setOutput"]={["help"]=""},
+["redstone.getOutput"]={["help"]=""},
+["redstone.getAnalogInput"]={["help"]=""},
+["redstone.setAnalogOutput"]={["help"]=""},
+["redstone.getAnalogOutput"]={["help"]=""},
+["redstone.getBundledInput"]={["help"]=""},
+["redstone.getBundledOutput"]={["help"]=""},
+["redstone.setBundledOutput"]={["help"]=""},
+["redstone.testBundledInput"]={["help"]=""},
+
+["rs"]={["color"]=themeColors.ccWord,["help"]="The redstone library"},
+["rs.getSides"]={["help"]=""},
+["rs.getInput"]={["help"]=""},
+["rs.setOutput"]={["help"]=""},
+["rs.getOutput"]={["help"]=""},
+["rs.getAnalogInput"]={["help"]=""},
+["rs.setAnalogOutput"]={["help"]=""},
+["rs.getAnalogOutput"]={["help"]=""},
+["rs.getBundledInput"]={["help"]=""},
+["rs.getBundledOutput"]={["help"]=""},
+["rs.setBundledOutput"]={["help"]=""},
+["rs.testBundledInput"]={["help"]=""},
+
+["shell"]={["color"]=themeColors.ccWord},
+["shell.exit"]={["help"]=""},
+["shell.dir"]={["help"]=""},
+["shell.setDir"]={["help"]=""},
+["shell.path"]={["help"]=""},
+["shell.setPath"]={["help"]=""},
+["shell.resolve"]={["help"]=""},
+["shell.resolveProgram"]={["help"]=""},
+["shell.aliases"]={["help"]=""},
+["shell.setAlias"]={["help"]=""},
+["shell.clearAlias"]={["help"]=""},
+["shell.programs"]={["help"]=""},
+["shell.getRunningProgram"]={["help"]=""},
+["shell.run"]={["help"]=""},
+["shell.openTab"]={["help"]=""},
+["shell.switchTab"]={["help"]=""},
+
+["term"]={["color"]=themeColors.ccWord,["help"]="Terminal commands"},
+["term.write"]={["help"]=""},
+["term.clear"]={["help"]=""},
+["term.clearLine"]={["help"]=""},
+["term.getCursorPos"]={["help"]=""},
+["term.setCursorPos"]={["help"]=""},
+["term.setCursorBlink"]={["help"]=""},
+["term.isColor"]={["help"]=""},
+["term.getSize"]={["help"]=""},
+["term.scroll"]={["help"]=""},
+["term.redirect"]={["help"]=""},
+["term.current"]={["help"]=""},
+["term.native"]={["help"]=""},
+["term.setTextColor"]={["help"]=""},
+["term.setBackgroundColor"]={["help"]=""},
+--[".setTextScale"]={["help"]=""},
+--[".setVisible"]={["help"]=""},
+--[".redraw"]={["help"]=""},
+--[".restoreCursor"]={["help"]=""},
+--[".getPosition"]={["help"]=""},
+--[".reposition"]={["help"]=""},
+
+["textutils"]={["color"]=themeColors.ccWord,["help"]="Extra string commands"},
+["textutils.slowWrite"]={["help"]=""},
+["textutils.slowPrint"]={["help"]=""},
+["textutils.formatTime"]={["help"]=""},
+["textutils.tabulate"]={["help"]=""},
+["textutils.pagedTabulate"]={["help"]=""},
+["textutils.pagedPrint"]={["help"]=""},
+["textutils.serialize"]={["help"]=""},
+["textutils.unserialize"]={["help"]=""},
+["textutils.serializeJSON"]={["help"]=""},
+["textutils.urlEncode"]={["help"]=""},
+
+["turtle"]={["color"]=themeColors.ccWord,["help"]="Contains all turtle commands"},
+["turtle.craft"]={["help"]=""},
+["turtle.forward"]={["help"]=""},
+["turtle.back"]={["help"]=""},
+["turtle.up"]={["help"]=""},
+["turtle.down"]={["help"]=""},
+["turtle.turnLeft"]={["help"]=""},
+["turtle.turnRight"]={["help"]=""},
+["turtle.select"]={["help"]=""},
+["turtle.getSelectedSlot"]={["help"]=""},
+["turtle.getItemCount"]={["help"]=""},
+["turtle.getItemSpace"]={["help"]=""},
+["turtle.getItemDetail"]={["help"]=""},
+["turtle.equipLeft"]={["help"]=""},
+["turtle.equipRight"]={["help"]=""},
+["turtle.attack"]={["help"]=""},
+["turtle.attackUp"]={["help"]=""},
+["turtle.attackDown"]={["help"]=""},
+["turtle.dig"]={["help"]=""},
+["turtle.digUp"]={["help"]=""},
+["turtle.digDown"]={["help"]=""},
+["turtle.place"]={["help"]=""},
+["turtle.placeUp"]={["help"]=""},
+["turtle.placeDown"]={["help"]=""},
+["turtle.detect"]={["help"]=""},
+["turtle.detectUp"]={["help"]=""},
+["turtle.detectDown"]={["help"]=""},
+["turtle.inspect"]={["help"]=""},
+["turtle.inspectUp"]={["help"]=""},
+["turtle.inspectDown"]={["help"]=""},
+["turtle.compare"]={["help"]=""},
+["turtle.compareUp"]={["help"]=""},
+["turtle.compareDown"]={["help"]=""},
+["turtle.compareTo"]={["help"]=""},
+["turtle.drop"]={["help"]=""},
+["turtle.dropUp"]={["help"]=""},
+["turtle.dropDown"]={["help"]=""},
+["turtle.suck"]={["help"]=""},
+["turtle.suckUp"]={["help"]=""},
+["turtle.suckDown"]={["help"]=""},
+["turtle.refuel"]={["help"]=""},
+["turtle.getFuelLevel"]={["help"]=""},
+["turtle.getFuelLimit"]={["help"]=""},
+["turtle.transferTo"]={["help"]=""},
+
+["vector"]={["color"]=themeColors.ccWord},
+["vector.new"]={["help"]=""},
+
+["window"]={["color"]=themeColors.ccWord},
+["window.create"]={["help"]=""},
+
+["pocket"]={["color"]=themeColors.ccWord,["help"]="Is true if the current computer is a pocket-computer"},
+}
+
+local function saveSettings()		--Saves the current settings to the settings file
+local saveSet={}
+for name,dSet in pairs(settings) do
+	saveSet[name]=dSet.Set
+end
+saveSet=textutils.serialize(saveSet)
+local f=fs.open(baseFile.."/nevarset","w")
+f.write(saveSet)
+f.close()
+end
+
+local function loadSettings()		--Loads settings from the setttings file
+local  f=fs.open(baseFile.."/nevarset","r")
+local loadSet=f.readAll()
+f.close()
+loadSet=textutils.unserialize(loadSet)
+for name,dSet in pairs(loadSet) do
+	settings[name].Set=dSet
+end
+shouldRedraw=true
+end
+
+local function loadTheme(file)		--Loads the theme from the given file
+local  f=fs.open(baseFile.."/themes/"..file,"r")
+local loadSet=f.readAll()
+f.close()
+loadSet=textutils.unserialize(loadSet)
+for name,dSet in pairs(loadSet) do
+	themeColors[name]=dSet
+end
+shouldRedraw=true
+end
+
+local function saveTheme(file)		--Saves the current theme to the given file
+local saveSet=textutils.serialize(themeColors)
+local f=fs.open(baseFile.."/themes/"..file,"w")
+f.write(saveSet)
+f.close()
+end
+
+local function fetchUpdate()		--Update Nevardon
+if http then
+	local dl=http.get(updateURL)
+	if dl then
+		local myself=fs.open(iam,"w")
+		myself.write(dl.readAll())
+		myself.close()
+		dl.close()
+		keepEditing=false
+		return true
+	else
+		createPopup("Error","There was a problem connecting to pastebin","Close")
+	end
+else
+	createPopup("Error","Http is not enabled","Close")
+end
+
+end
+
+local function keyWordCheck(str)	--Checks string for keywords
+local dot=str:find(".",1,true)
+if keyWords[str]~=nil and keyWords[str].color~=nil then
+	return keyWords[str].color
+elseif dot~=nil then
+	local gVar=str:sub(1,dot-1)
+	local varF=str:sub(dot+1)
+	if (gVar=="colors" or gVar=="colours") and _G[gVar][varF]~=nil and _G[gVar][varF]~=colors.black then
+		return _G[gVar][varF]
+	elseif type(_G[gVar])=="table" then
+		if keyWords[gVar]~=nil and _G[gVar][varF]~=nil then
+			return keyWords[gVar].color
+		end
+	end
+end
+
+return themeColors.default
+end
+
+local function keyWordHelp(str)		--Gets the help string of the given keyword
+if type(str)~="string" then return nil end
+local dot=str:find(".",1,true)
+if keyWords[str]~=nil and keyWords[str].help~=nil and keyWords[str].help~="" then
+	return keyWords[str].help,keyWords[str].ex
+elseif dot~=nil then
+	local gVar=str:sub(1,dot-1)
+	local varF=str:sub(dot+1)
+	if (gVar=="colors" or gVar=="colours") and _G[gVar][varF]~=nil then
+		return "The "..gVar:sub(1,-2).." "..varF.." ("..tostring(_G[gVar][varF])..")"
+	end
+elseif dot==nil then
+	if keyWords[str]~=nil and keyWords[str].help==nil then
+		return "The "..str.." library"
+	end
+end
+return false
+end
+
+local function guiWordWrap(str,length)	--Returns a table, formats a string to wrap across the given length
+local fTable={""}
+repeat 
+	local match=str:match("%s*%S+")
+	if match then
+		if #fTable[#fTable]+#match<=length then
+			fTable[#fTable]=fTable[#fTable]..match
+		elseif #match>length and #fTable[#fTable]<length then
+			fTable[#fTable]=fTable[#fTable]..match:sub(1,length-#fTable[#fTable])
+			fTable[#fTable+1]=match:sub(length-#fTable[#fTable]+1)
+		else
+			fTable[#fTable+1]=match
+		end
+		str=str:sub(#match+1)
+	else
+		match=str:match("%s+")
+		if match==str then
+			str=""
+		else
+			--print("S:"..tostring(str))
+			--print("SL:"..#tostring(str))
+			--print("M:"..tostring(match))
+			--sleep(0.5)
+			error("Nevardon GUI Word Wrap Crashed\n".."Str:"..tostring(str).."\nLen:"..length.."\nMatch:"..tostring(match))
+		end
+	end
+until str==""
+return fTable
+end
+
+local function lineHasHighlight(line)	--Checks if the given line has a highlighted portion
+if highlight[1]~=nil and highlight[1][1]~=nil and line>=highlight[1][1] and line<=highlight[2][1] then
+	return true
+end
+return false
+end
+
+local function getHighlight(line)		--Gets the words highlighted on that line
+local char,lineText=nil,nil
+if line==highlight[1][1] then
+	char=highlight[1][2]
+	if line==highlight[2][1] then
+		lineText=fileText[line]:sub(char,highlight[2][2])
+	else
+		lineText=fileText[line]:sub(char)
+	end
+elseif line==highlight[2][1] then
+	char=1
+	lineText=fileText[line]:sub(1,highlight[2][2])
+elseif lineHasHighlight(line) then
+	char=1
+	if fileText[line]=="" then lineText=" " else lineText=fileText[line] end
+end
+
+return char,lineText
+end
+
+local function getHighlightText()		--Returns a table of all highlighted text
+local textTable={}
+local tStart=1
+for x=highlight[1][1],highlight[2][1] do
+	_,textTable[tStart]=getHighlight(x)
+	tStart=tStart+1
+end
+return textTable
+end
+
+local function renderPart(str,pattern,color,shouldDraw)
+if shouldDraw==nil then shouldDraw=true end
+match=string.match(str,pattern)
+if match~=nil then
+	if pattern=="^%-%-%[%[.*" then multiLine="comment" 
+	elseif pattern=="^%[%[.*" then multiLine="string" 
+	elseif pattern=="^%]%]" or pattern=="^%-%-.*%]%].*" then color=themeColors[multiLine] multiLine=false end
+end
+	
+if multiLine~=false then
+	if multiLine=="comment" then
+			color=themeColors["comment"]
+	elseif multiLine=="string" then
+			color=themeColors["string"]
+	end
+end
+
+if match~=nil and shouldDraw then
+	if type(color)=="number" then
+			scr.setTextColor(color)
+	else
+			scr.setTextColor(keyWordCheck(match))
+	end
+	scr.write(match)
+	return str:sub(#match+1)
+elseif match~=nil and shouldDraw==false then
+	return str:sub(#match+1)
+else
+	return nil
+end
+	
+end
+--[[
+asdf
+asdf
+--]]
+--Priority: Comment:String:Lua/CC function:number
+local function renderLine(line,shouldDraw)				--Line highlight check
+if shouldDraw==nil then shouldDraw=true end
+local lineRemain=line
+if lineRemain==nil then return false end
+if settings.syntaxHL.Set then
+	if shouldDraw then
+		while #lineRemain~=0 do
+			lineRemain=
+				renderPart(lineRemain,"^%s+",themeColors.default) or				--Patterns really confuse me...
+				renderPart(lineRemain,"^%-%-%[%[.*%]%]",themeColors.comment) or
+				renderPart(lineRemain,"^%-%-%[%[.*",themeColors.comment) or
+				renderPart(lineRemain,"^%-%-.*%]%].*",themeColors.comment) or
+				renderPart(lineRemain,"^%-%-.*",themeColors.comment) or				--Attempt for multiline closing bracket check within a comment line "^%-%-^%]%]*"
+				renderPart(lineRemain,"^%[%[.*%]%]",themeColors.string) or
+				renderPart(lineRemain,"^%[%[.*",themeColors.string) or
+				renderPart(lineRemain,"^%]%]",themeColors.string) or
+				renderPart(lineRemain,"^\".-[^\\\"]-\"",themeColors.string) or
+				renderPart(lineRemain,"^\'.-[^\\\']-\'",themeColors.string) or
+				renderPart(lineRemain,"^%[%[.-%]%]",themeColors.string) or
+				renderPart(lineRemain,"^%d+%x*%.?%d*%x*",themeColors.number) or
+				renderPart(lineRemain,"^%.%d+%x*",themeColors.number) or
+				renderPart(lineRemain,"^_*%a+%w*%.?%a*%w*",true) or
+				renderPart(lineRemain,"^[<>~=]+",true) or
+				renderPart(lineRemain,"^[%w_]",themeColors.default) or
+				renderPart(lineRemain,"^.",themeColors.default)
+		end
+	else
+		while #lineRemain~=0 do
+			lineRemain=
+				renderPart(lineRemain,"^[^%]%[%-]+",themeColors.default,false) or
+				renderPart(lineRemain,"^%-%-%[%[.*%]%]",themeColors.comment,false) or
+				renderPart(lineRemain,"^%-%-%[%[.*",themeColors.comment,false) or
+				renderPart(lineRemain,"^%[%[.*%]%]",themeColors.string,false) or
+				renderPart(lineRemain,"^%[%[.*",themeColors.string,false) or
+				renderPart(lineRemain,"^%]%]",themeColors.string,false) or
+				renderPart(lineRemain,"^.*",themeColors.default,false)
+		end
+	end
+else
+	scr.setTextColor(themeColors.default)
+	scr.setBackgroundColor(themeColors.background)
+	scr.write(line)
+end
+if shouldDraw then scr.write(string.rep(" ",scrX)) end
+end
+
+local function placeCursor()				--Places cursor in spot according to the curLine and curChar
+scr.setCursorPos(renderSpace.x+curChar-renderStart.x,renderSpace.y+curLine-renderStart.y)
+end
+
+local function drawText(lineN)
+scr.setCursorBlink(false)
+multiLine=false
+
+if lineN~=nil then
+	scr.setCursorPos(renderSpace.x+1-renderStart.x,renderSpace.y+lineN)
+	if fileText[lineN]~=nil then renderLine(fileText[lineN+renderStart.y]) else scr.clearLine() end
+	placeCursor()
+else
+	local didRender=false
+	local loopMax=scrY
+	if settings.multiline.Set then loopMax=#fileText end
+	for line=1,loopMax do
+		local shouldDraw=false
+		local curY=0
+		local rendLine=0
+		if not settings.multiline.Set then
+			shouldDraw=true
+			curY=renderSpace.y+line
+			rendLine=line+renderStart.y
+		elseif line>renderStart.y and renderStart.y+scrY>=line then 
+			shouldDraw=true 
+			didRender=true 
+			curY=line-renderStart.y+renderSpace.y
+			rendLine=line
+		elseif settings.multiline.Set then
+			rendLine=line
+		end
+		local toRend=fileText[rendLine]
+		if shouldDraw then scr.setCursorPos(renderSpace.x+1-renderStart.x,curY) end
+		if toRend~=nil then renderLine(toRend,shouldDraw) elseif shouldDraw then scr.clearLine() end
+		--write("LINE:"..line.."  :RS:"..renderStart.y.."     SCRY:"..scrY)
+		if lineHasHighlight(rendLine) and shouldDraw then
+			local hC,hT=getHighlight(rendLine)
+			scr.setTextColor(themeColors.highlightText)
+			scr.setBackgroundColor(themeColors.highlightBack)
+			scr.setCursorPos(renderSpace.x+hC-renderStart.x,curY)
+			scr.write(hT)
+			scr.setBackgroundColor(themeColors.background)
+		end
+		if didRender and shouldDraw==false then break end
+	end
+	placeCursor()
+end
+scr.setCursorBlink(true)
+end
+
+local function basicReset()
+renderStart={["x"]=0,["y"]=0}
+curChar=1
+curLine=1
+highlight={}
+errorLine=nil
+scr.setCursorBlink(true)
+scr.setTextColor(themeColors.default)
+scr.setBackgroundColor(themeColors.background)
+end
+
+local function checkCursor()				--Checks if the cursor is in a valid spot
+	
+if curLine>#fileText then curLine=#fileText end
+if curLine<1 then curLine=1 end
+if curChar>#fileText[curLine]+1 then curChar=#fileText[curLine]+1 end
+if curChar<1 then curChar=1 end
+	
+end
+
+local function checkView()					--Checks if the cursor is on screen and moves the view accordingly 
+checkCursor()
+local didChange=false
+if renderStart.y+scrY>#fileText then
+	if scrY>#fileText then
+		renderStart.y=0
+	else
+		renderStart.y=#fileText-scrY
+	end
+	didChange=true
+elseif renderStart.y<0 then
+	renderStart.y=0
+	didChange=true
+elseif curLine-renderStart.y>scrY then
+	renderStart.y=curLine-scrY
+	didChange=true
+elseif curLine-renderStart.y<1 then
+	renderStart.y=curLine-1
+	didChange=true
+end
+
+if curChar-renderStart.x>scrX then 
+	renderStart.x=curChar-scrX
+	didChange=true
+elseif curChar-renderStart.x<1 then
+	renderStart.x=curChar-1
+	didChange=true
+end
+
+--scr.setCursorPos(tscrX-6,tscrY)
+--scr.write(renderStart.x..":"..renderStart.y)
+
+placeCursor()
+
+return didChange
+end
+
+local function requires(var,rules)			--Checks if var matching the given requirement
+if type(rules)~="string" and type(rules)~="table" then
+	return false,"Invalid Rule"
+end
+
+if type(rules)=="string" then
+	if type(var)==rules then
+		return true
+	elseif rules=="positive" then
+		if var>0 then return true else return false end
+	elseif rules=="negative" then
+		if var<0 then return true else return false end
+	elseif rules=="bool" then
+		if type(var)=="boolean" then return true else return false end
+--	elseif rules=="" then
+		
+	end
+	return false
+elseif type(rules)=="table" then
+	for x,newRule in pairs(rules) do
+		local aMatch,anyError=requires(var,newRule)
+		if aMatch then 
+			return true
+		elseif anyError~=nil then
+			return false,anyError
+		end
+	end
+	return false
+end
+return false,"Unknown"
+end
+
+local function createContext(context,posX,posY)		--Draw a context menu
+if type(context)~="string" then return false end
+if type(posX)~="number" then return false end
+if type(posY)~="number" then return false end
+
+scr.setCursorBlink(false)
+local tLen=0
+scr.setTextColor(themeColors.contextText)
+scr.setBackgroundColor(themeColors.contextBack)
+local curContext=contextSelect[context]
+
+for list=1,#curContext do				--Gets size of longest string
+	if #curContext[list]+2>tLen then tLen=#curContext[list]+2 end
+end
+
+if #curContext+posY>tscrY-1 then posY=tscrY-#curContext end		--Corrects position so it will not go off screen (Y axis)
+if tLen+posX>tscrX then posX=tscrX-tLen+1 end											--Corrects position so it will not go off screen (X axis)
+
+for list=1,#curContext do			--Draws background of menu
+	scr.setCursorPos(posX,posY+list-1)
+	scr.write(string.rep(" ",tLen))
+end
+
+for list=1,#curContext do			--Adds text
+	scr.setCursorPos(posX,posY+list-1)
+	scr.write(curContext[list])
+end
+
+--Waits for input
+local correctClick=false
+local toReturn=nil
+repeat
+	local eve={os.pullEvent("mouse_click")}
+	if eve[1]=="mouse_click" then
+		if eve[2]==1 and eve[3]>=posX and eve[3]<=(posX+tLen-1) and eve[4]>=posY and eve[4]<=(posY+#curContext-1) then
+			toReturn=curContext[(eve[4]-posY+1)]
+			correctClick=true
+		elseif eve[2]==1 then
+			correctClick=true
+		end
+	end
+until correctClick
+scr.setCursorBlink(true)
+
+scr.setTextColor(themeColors.default)
+scr.setBackgroundColor(themeColors.background)
+
+shouldRedraw=true
+placeCursor()
+
+return toReturn
+end
+--Popup borrowed and modified from my GUI program
+local function createPopup(titleText,descText,buttons,insertText,posOvr)	--insertText (False for no text to be entered, true for default, string for new default text)
+if type(titleText)=="number" then titleText=tostring(titleText) end
+if type(descText)=="number" then descText=tostring(descText) end
+
+if type(titleText)~="string" then titleText="Err:TitleSet:"..type(titleText) end
+if not requires(descText,{"string","table"}) then descText="Err:DescSet:"..type(descText) end
+if not requires(buttons,{"string","table"}) then buttons="Err:ButtonSet:"..type(buttons) end
+if not requires(insertText,{"string","bool","nil"}) then insertText="Err:InsertSet:"..type(insertText) end
+if type(posOvr)~="table" then posOvr=nil end
+--titleText = Text on top bar
+--descText = Text shown within popup
+--buttons = Table:{"This","Is","an","Example"}
+scr.setCursorBlink(false)
+if type(buttons)=="string" then buttons={buttons} end
+if type(descText)=="string" then descText={descText} end
+local popboxXSize=math.floor(tscrX/1.5)
+--local longestDescLine=0
+local newDesc={}
+for x=1,#descText do
+	if type(descText[x])=="number" then descText[x]=tostring(descText[x]) end
+	newDesc[x]=guiWordWrap(descText[x],popboxXSize)
+end
+--[[for x=1,#descText do
+	if #descText[x]>longestDescLine then longestDescLine=#descText[x] end
+end
+
+if longestDescLine+2>tscrX/2 then
+	if longestDescLine+4>tscrX then
+		popboxXSize=tscrX-4
+	else
+		popboxXSize=longestDescLine+2 
+	end
+end]]
+textLines=0
+for x=1,#newDesc do
+	textLines=textLines+#newDesc[x]
+end
+
+local popboxYSize=2+#buttons+textLines
+
+local popboxX,popboxY
+if posOvr==nil then
+popboxX=math.floor((tscrX/2)-(popboxXSize/2))
+popboxY=math.floor((tscrY/2)-(popboxYSize/2)+0.5)
+else
+popboxX=posOvr[1]
+popboxY=posOvr[2]
+end
+
+if insertText==false or insertText==nil then
+	insertText=false
+elseif insertText==true then
+	insertText=""
+end
+
+scr.setTextColor(themeColors.popBoxText)
+scr.setBackgroundColor(themeColors.popBoxBack)
+for y=0,popboxYSize do
+	scr.setCursorPos(popboxX,popboxY+y)
+	scr.write(string.rep(" ",popboxXSize))
+end
+scr.setBackgroundColor(themeColors.popBoxAlt)
+scr.setCursorPos(popboxX,popboxY)
+scr.write(string.rep(" ",popboxXSize))
+
+scr.setCursorPos(popboxX+(popboxXSize-#titleText)/2,popboxY)
+scr.write(titleText)
+scr.setBackgroundColor(themeColors.popBoxBack)
+
+local addY=1
+for x=1,#newDesc do
+	for y=1,#newDesc[x] do
+		scr.setCursorPos(popboxX+popboxXSize/2-#newDesc[x][y]/2,popboxY+addY)
+		scr.write(newDesc[x][y])
+		addY=addY+1
+	end
+end
+
+if insertText~=false then
+	scr.setBackgroundColor(themeColors.popBoxAlt)
+	scr.setCursorPos(popboxX,popboxY+1+textLines)
+	scr.write(string.rep(" ",popboxXSize))
+end
+
+scr.setBackgroundColor(themeColors.popBoxButton)
+for y=1,#buttons do
+	scr.setCursorPos(popboxX+1,popboxY+2+textLines+y-1)
+	if not isColor then
+		scr.write(y..":"..buttons[y])
+	else
+		scr.write(buttons[y])
+	end
+end
+
+
+if insertText~=false then 
+	scr.setCursorPos(popboxX+1,popboxY+1+textLines)
+	scr.write(">"..insertText)
+	scr.setCursorBlink(true)
+end
+
+local toReturn=nil
+local escapePopup=false
+local bX=popboxX+1
+local bY=popboxY+2+textLines
+local waitForNum=false
+if not isColor and insertText==false then waitForNum=true end
+scr.setTextColor(themeColors.popBoxText)
+scr.setBackgroundColor(themeColors.popBoxAlt)
+repeat
+	eve={os.pullEvent()}
+	if eve[1]=="mouse_click" then
+		if eve[4]>=bY and eve[4]<=bY+#buttons-1 and eve[3]>=bX and eve[3]<=bX+#buttons[eve[4]-math.floor(bY)+1]-1 then
+			toReturn=buttons[eve[4]-math.floor(bY)+1]
+			escapePopup=true
+		end
+	elseif eve[1]=="key" then
+		if eve[2]==14 and insertText~=false and not waitForNum then		--Remove last letter entered
+			insertText=string.sub(insertText,1,-2)
+			scr.setCursorPos(bX+1,bY-1)
+			scr.write(insertText.." ")
+			scr.setCursorPos(bX+#insertText+1,bY-1)
+		elseif eve[2]==28 then							--Enter
+			if isColor or waitForNum then
+				toReturn=buttons[1]
+				escapePopup=true
+			else
+				waitForNum=true
+				scr.setCursorBlink(false)
+			end
+		end
+	elseif eve[1]=="char" then
+		if insertText~=false and not waitForNum then
+			insertText=insertText..eve[2]
+			scr.setCursorPos(bX+1,bY-1)
+			scr.write(insertText)
+		elseif waitForNum then
+			if tonumber(eve[2])~=nil and buttons[tonumber(eve[2])]~=nil then
+				toReturn=buttons[tonumber(eve[2])]
+				escapePopup=true
+			end
+		end
+	end
+until escapePopup
+
+scr.setTextColor(themeColors.default)
+scr.setBackgroundColor(themeColors.background)
+
+shouldRedraw=true
+placeCursor()
+scr.setCursorBlink(true)
+return toReturn,insertText
+end
+
+local function createHelpPopup(kWord)		--Creates a popup that is used to display help messages
+local descText,exText=keyWordHelp(kWord)
+if not descText then
+	return false
+end
+
+if not requires(descText,{"string","table"}) then descText="Err:DescSet:"..type(descText) end
+if not requires(exText,{"string","table","nil"}) then exText="Err:DescSet:"..type(exText) end
+
+scr.setCursorBlink(false)
+if type(descText)=="string" then descText={descText} end
+if type(exText)=="string" then exText={exText} end
+local popboxXSize=math.floor(tscrX/1.5)
+local newDesc={}
+for x=1,#descText do
+	if type(descText[x])=="number" then descText[x]=tostring(descText[x]) end
+	newDesc[x]=guiWordWrap(descText[x],popboxXSize-2)
+end
+local newEx={}
+if exText then
+	for x=1,#exText do
+		if type(exText[x])=="number" then exText[x]=tostring(exText[x]) end
+		newEx[x]=guiWordWrap(exText[x],popboxXSize-2)
+	end
+end
+textLines=0
+for x=1,#newDesc do
+	textLines=textLines+#newDesc[x]
+end
+if exText then
+	textLines=textLines+2
+	for x=1,#newEx do
+		textLines=textLines+#newEx[x]
+	end
+end
+local popboxYSize=textLines+3
+
+local popboxX=math.floor((tscrX/2)-(popboxXSize/2))
+local popboxY=math.floor((tscrY/2)-(popboxYSize/2)+0.5)
+
+scr.setTextColor(themeColors.popBoxText)
+scr.setBackgroundColor(themeColors.popBoxBack)
+for y=0,popboxYSize do
+	scr.setCursorPos(popboxX,popboxY+y)
+	scr.write(string.rep(" ",popboxXSize))
+end
+scr.setBackgroundColor(themeColors.popBoxAlt)
+scr.setCursorPos(popboxX,popboxY)
+scr.write(string.rep(" ",popboxXSize))
+
+scr.setCursorPos(popboxX+(popboxXSize-#kWord)/2,popboxY)
+scr.write(kWord)
+scr.setBackgroundColor(themeColors.popBoxBack)
+
+local addY=1
+for x=1,#newDesc do
+	for y=1,#newDesc[x] do
+		scr.setCursorPos(popboxX+popboxXSize/2-#newDesc[x][y]/2,popboxY+addY)
+		scr.write(newDesc[x][y])
+		addY=addY+1
+	end
+end
+if exText then
+	scr.setCursorPos(popboxX+popboxXSize/2-4,popboxY+addY+1)
+	scr.write("Example")
+	scr.setBackgroundColor(themeColors.popBoxAlt)
+	addY=addY+2
+	for x=1,#newEx do
+		for y=1,#newEx[x] do
+			scr.setCursorPos(popboxX+1,popboxY+addY)
+			scr.write(string.rep(" ",popboxXSize-2))
+			scr.setCursorPos(popboxX+1,popboxY+addY)
+			scr.write(newEx[x][y])
+			addY=addY+1
+		end
+	end
+end
+scr.setBackgroundColor(themeColors.popBoxButton)
+scr.setCursorPos(popboxX+1,popboxY+2+textLines)
+if not isColor then
+	scr.write("1:Close")
+else
+	scr.write("Close")
+end
+
+local escapePopup=false
+local bX=popboxX+1
+local bY=popboxY+2+textLines
+local waitForNum=true
+if not isColor then waitForNum=true end
+scr.setTextColor(themeColors.popBoxText)
+scr.setBackgroundColor(themeColors.popBoxAlt)
+
+repeat
+	eve={os.pullEvent()}
+	if eve[1]=="mouse_click" then
+		if eve[4]==bY and eve[3]>=bX and eve[3]<=bX+4 then
+			escapePopup=true
+		end
+	elseif eve[1]=="key" then
+		if eve[2]==28 then
+			escapePopup=true
+		end
+	elseif eve[1]=="char" then
+		if waitForNum and tonumber(eve[2])==1 then escapePopup=true end
+	end
+until escapePopup
+
+scr.setTextColor(themeColors.default)
+scr.setBackgroundColor(themeColors.background)
+
+shouldRedraw=true
+placeCursor()
+scr.setCursorBlink(true)
+return true
+end
+
+local function createFilePopup(startDir)	--Creates a popup that is used for opening/closing files
+
+end
+
+local function createDetailedMenu(setData)
+local pxSize=tscrX/25
+local mStartX=2
+local mStartY=2
+local mSizeX=tscrX-2
+local mSizeY=tscrY-2
+
+for y=1,mSizeY do
+	scr.setBackgroundColor(themeColors.settingsBack)
+	scr.setTextColor(themeColors.settingsText)
+	scr.setCursorPos(mStartX,mStartY+y-1)
+	scr.write(string.rep(" ",mSizeX))
+end
+
+scr.setCursorPos((mStartX+mSizeX-1)/2-#setData.Name/2,mStartY+1)
+scr.write(setData.Name)
+scr.setCursorPos(mStartX+mSizeX-7,mStartY)
+scr.write("[Close]")
+
+	local function drawSet()
+		scr.setBackgroundColor(themeColors.settingsBack)
+		scr.setCursorPos(mStartX,mStartY+2)
+		scr.write(string.rep(" ",mSizeX))
+		if setData.CanSet=="bool" then
+			if setData.Set then
+				scr.setBackgroundColor(themeColors.settingsOn)
+			else
+				scr.setBackgroundColor(themeColors.settingsOff)
+			end
+		else
+			scr.setBackgroundColor(themeColors.settingsUndef)
+		end
+		local stateStr="State:"..tostring(setData.Set)
+		scr.setCursorPos((mStartX+mSizeX-1)/2-#stateStr/2,mStartY+2)
+		scr.write(stateStr)
+	end
+
+drawSet()
+scr.setBackgroundColor(themeColors.settingsBack)
+local xSize=math.floor(mStartX+mSizeX-1)
+local wString=guiWordWrap(setData.Desc,xSize-4)
+local ySize=#wString
+for y=1,ySize do
+	scr.setBackgroundColor(themeColors.settingsLineAlt)
+	scr.setCursorPos(mStartX+1,mStartY+2+y)
+	scr.write(string.rep(" ",tscrX-5))
+	scr.setCursorPos(((mStartX+mSizeX)/2)-(#wString[y]/2),mStartY+2+y)
+	scr.write(wString[y])
+end
+
+if setData.CanSet==false then
+	local msg="This setting can't be changed"
+	scr.setCursorPos((mStartX+mSizeX)/2-#msg/2,(mStartY+mSizeY)-4)
+	scr.write(msg)
+elseif setData.CanSet=="bool" then
+	scr.setCursorPos((mStartX+mSizeX)/3,(mStartY+mSizeY)-4)
+	scr.setBackgroundColor(themeColors.settingsOn)
+	scr.write("ON")
+	scr.setCursorPos((mStartX+mSizeX)/1.5,(mStartY+mSizeY)-4)
+	scr.setBackgroundColor(themeColors.settingsOff)
+	scr.write("OFF")
+elseif setData.CanSet=="number" or setData.CanSet=="positive" or setData.CanSet=="negative" then
+	scr.setBackgroundColor(themeColors.settingsOff)
+	scr.setCursorPos((mStartX+mSizeX)/2-pxSize*9,(mStartY+mSizeY)-4)
+	scr.write("-10")
+	scr.setCursorPos((mStartX+mSizeX)/2-pxSize*6,(mStartY+mSizeY)-4)
+	scr.write("-5")
+	scr.setCursorPos((mStartX+mSizeX)/2-pxSize*3,(mStartY+mSizeY)-4)
+	scr.write("-1")
+	scr.setBackgroundColor(themeColors.settingsOn)
+	scr.setCursorPos((mStartX+mSizeX)/2+pxSize*9,(mStartY+mSizeY)-4)
+	scr.write("+10")
+	scr.setCursorPos((mStartX+mSizeX)/2+pxSize*6,(mStartY+mSizeY)-4)
+	scr.write("+5")
+	scr.setCursorPos((mStartX+mSizeX)/2+pxSize*3,(mStartY+mSizeY)-4)
+	scr.write("+1")
+	scr.setBackgroundColor(themeColors.settingsUndef)
+	scr.setCursorPos((mStartX+mSizeX)/2-math.floor(math.log10(setData.Set))/2-1,(mStartY+mSizeY)-4)
+	scr.write(" "..tostring(setData.Set).." ")
+end
+local canGo=false
+repeat
+	eve={os.pullEvent()}
+	if eve[1]=="mouse_click" and eve[4]==mStartY and eve[3]>=(mStartX+mSizeX)-7 and eve[3]<=(mStartX+mSizeX)-1 then
+		canGo=true
+	elseif setData.CanSet==false then
+		--Code here?
+	elseif setData.CanSet=="bool" then
+		if eve[4]==tscrY-4 then
+			if eve[3]>=(mStartX+mSizeX)/3 and eve[3]<=(mStartX+mSizeX)/3+1 then
+				setData.Set=true
+				drawSet()
+			elseif eve[3]>=(mStartX+mSizeX)/1.5 and eve[3]<=(mStartX+mSizeX)/1.5+1 then
+				setData.Set=false
+				drawSet()
+			end
+		end
+	elseif setData.CanSet=="number" or setData.CanSet=="positive" or setData.CanSet=="negative" then
+		if eve[4]==(mStartY+mSizeY)-4 then
+			
+			if eve[3]>=math.floor((mStartX+mSizeX)/2-pxSize*9) and eve[3]<=math.floor((mStartX+mSizeX)/2-pxSize*9)+2 then
+				setData.Set=setData.Set-10
+			elseif eve[3]>=math.floor((mStartX+mSizeX)/2-pxSize*6) and eve[3]<=math.floor((mStartX+mSizeX)/2-pxSize*6)+1 then
+				setData.Set=setData.Set-5
+			elseif eve[3]>=math.floor((mStartX+mSizeX)/2-pxSize*3) and eve[3]<=math.floor((mStartX+mSizeX)/2-pxSize*3)+1 then
+				setData.Set=setData.Set-1
+			elseif eve[3]>=math.floor((mStartX+mSizeX)/2+pxSize*9) and eve[3]<=math.floor((mStartX+mSizeX)/2+pxSize*9)+2 then
+				setData.Set=setData.Set+10
+			elseif eve[3]>=math.floor((mStartX+mSizeX)/2+pxSize*6) and eve[3]<=math.floor((mStartX+mSizeX)/2+pxSize*6)+1 then
+				setData.Set=setData.Set+5
+			elseif eve[3]>=math.floor((mStartX+mSizeX)/2+pxSize*3) and eve[3]<=math.floor((mStartX+mSizeX)/2+pxSize*3)+1 then
+				setData.Set=setData.Set+1
+			end
+			if setData.CanSet=="negative" and setData.Set>-1 then setData.Set=-1 
+			elseif setData.CanSet=="positive" and setData.Set<1 then setData.Set=1 end
+			drawSet()
+			scr.setCursorPos((mStartX+mSizeX)/2-math.floor(math.log10(setData.Set))/2-1,(mStartY+mSizeY)-4)
+			scr.write(" "..tostring(setData.Set).." ")
+		end
+	end
+	
+	
+until canGo
+
+return true
+end
+
+local function recheckSettings()
+if settings.lineNBar.Set then
+	renderSpace.x=math.floor(math.log10(renderStart.y+scrY))+1
+	scrX=tscrX-renderSpace.x
+else
+	renderSpace.x=0
+	scrX=tscrX		
+end
+
+if settings.tabsBar.Set then
+	renderSpace.y=1
+else
+	renderSpace.y=0
+end
+if	settings.menuBar.Set then
+	scrY=tscrY-renderSpace.y-1
+else
+	scrY=tscrY-renderSpace.y
+end
+
+
+end
+
+local function createSettingsMenu()
+local closeMenu=false
+local mStartX=2
+local mStartY=2
+local mSizeX=tscrX-2
+local mSizeY=tscrY-2
+repeat
+	scr.setBackgroundColor(themeColors.background)
+	scr.clear()
+	scr.setCursorBlink(false)
+	for y=1,mSizeY do
+		scr.setBackgroundColor(themeColors.settingsBack)
+		scr.setTextColor(themeColors.settingsText)
+		scr.setCursorPos(mStartX,mStartY+y-1)
+		scr.write(string.rep(" ",mSizeX))
+	end
+	scr.setCursorPos(mStartX+mSizeX-7,mStartY)
+	scr.write("[Close]")
+	scr.setCursorPos(mStartX,mStartY)
+	scr.write("[Update Nevardon]")
+	local title="Settings Menu"
+	scr.setCursorPos((mStartX+mSizeX)/2-#title/2,mStartY+1)
+	scr.write(title)
+	local buttonLine=0
+	local setT={}
+	scr.setTextColor(themeColors.settingsLineText)
+	for varName,setData in pairs(settings) do
+		if buttonLine%2==0 then
+			scr.setBackgroundColor(themeColors.settingsLine)
+		else
+			scr.setBackgroundColor(themeColors.settingsLineAlt)
+		end
+		scr.setCursorPos(mStartX+2,4+buttonLine)
+		scr.write(string.rep(" ",(mSizeX-4)))
+		scr.setCursorPos((mStartX+mSizeX)/2-#setData.Name/2,mStartY+2+buttonLine)
+		scr.write(setData.Name)
+		if setData.CanSet=="bool" then
+			if setData.Set then
+				scr.setBackgroundColor(themeColors.settingsOn)
+			else
+				scr.setBackgroundColor(themeColors.settingsOff)
+			end
+			scr.setCursorPos(mStartX+2,mStartY+2+buttonLine)
+			scr.write(" ")
+		elseif setData.CanSet=="number" or setData.CanSet=="positive" or setData.CanSet=="negative" then
+			scr.setBackgroundColor(themeColors.settingsUndef)
+			scr.setCursorPos(mStartX+2,mStartY+2+buttonLine)
+			scr.write(tostring(setData.Set))
+		elseif setData.CanSet==false then
+			scr.setBackgroundColor(themeColors.settingsNoEdit)
+			scr.setCursorPos(mStartX+2,mStartY+2+buttonLine)
+			scr.write("X")
+		end
+		setT[buttonLine]=setData
+		buttonLine=buttonLine+1
+	end
+	buttonLine=buttonLine-1
+	local exitEvent=false
+	repeat
+		local eve={os.pullEvent()}
+		if eve[1]=="mouse_click" and eve[2]==1 then
+			if eve[3]>=mStartX+2 and eve[3]<mStartX+mSizeX-2 and eve[4]>=mStartY+2 and eve[4]<=buttonLine+mStartY+2 then
+				createDetailedMenu(setT[eve[4]-4])
+				exitEvent=true
+			elseif eve[4]==mStartY and eve[3]>=mStartX+mSizeX-7 and eve[3]<mStartX+mSizeX then
+				exitEvent=true
+				closeMenu=true
+			elseif eve[4]==mStartY and eve[3]>=mStartX and eve[3]<mStartX+18 then
+				fetchUpdate()
+				exitEvent=true
+				closeMenu=true
+			end
+		end
+	until exitEvent	
+until closeMenu
+saveSettings()
+placeCursor()
+shouldRedraw=true
+scr.setCursorBlink(true)
+recheckSettings()
+return true
+end
+
+local function drawMenu(override)			--Draws menu at bottom of editor
+if settings.menuBar.Set==false and override~=true then
+	return false
+end
+if settings.menuBar.Set==false and override==true then
+	menuWait=true
+	scr.setCursorBlink(false)
+end
+scr.setCursorPos(1,tscrY)
+scr.setBackgroundColor(themeColors.menuBack)
+scr.clearLine()
+scr.setTextColor(themeColors.menuText)
+scr.write("File  Edit  Search  View  Settings  Exit")
+end
+
+local function drawTabs()					--Will be used for tabs, right now just for messages
+if not settings.tabsBar.Set then return false end
+scr.setCursorPos(1,1)
+scr.setBackgroundColor(themeColors.tabBack)
+scr.setTextColor(themeColors.tabText)
+scr.clearLine()
+scr.write(loadedFile)
+end
+
+local function tabMessage(message,...)		--Temporary, Just until tabs are added
+if not settings.tabsBar.Set then return false end
+if type(message)~=string then message=tostring(message) end
+if arg[1]==true then
+	drawTabs()
+else
+	scr.setCursorPos(tscrX-(#message+1),1)
+	scr.setBackgroundColor(themeColors.tabBack)
+	scr.setTextColor(themeColors.tabText)
+	scr.write(message)
+	tabTimer=os.startTimer(3)
+end
+
+placeCursor()
+end
+
+local function drawLineNumber()
+if settings.lineNBar.Set then
+	scr.setTextColor(themeColors.lineNText)
+	scr.setBackgroundColor(themeColors.lineNBack)
+
+	for line=1,scrY do
+		local rLine=renderStart.y+line
+		if fileText[rLine]~=nil then
+			if rLine==errorLine and rLine==curLine then 
+				scr.setBackgroundColor(themeColors.lineCurError) 
+			elseif rLine==curLine then
+				scr.setBackgroundColor(themeColors.lineCur) 
+			elseif rLine==errorLine then
+				scr.setBackgroundColor(themeColors.lineError) 
+			elseif rLine-1==errorLine or rLine-1==curLine then 
+				scr.setBackgroundColor(themeColors.lineNBack) 
+			end
+			scr.setCursorPos(1,line+renderSpace.y)
+			scr.write(string.rep(" ",renderSpace.x))
+			scr.setCursorPos(1,line+renderSpace.y)
+			scr.write(tostring(rLine))
+		end
+	end
+
+	scr.setBackgroundColor(themeColors.background)
+end
+end
+
+local function drawViewableLines(drawType)
+if drawType==1 then
+	scr.setBackgroundColor(themeColors.background)
+	scr.clear()
+	drawMenu()
+	drawTabs()
+end
+if settings.lineNBar.Set then
+	renderSpace.x=math.floor(math.log10(renderStart.y+scrY))+1
+	scrX=tscrX-renderSpace.x
+end
+scr.setBackgroundColor(themeColors.background)
+
+drawText()
+drawLineNumber()
+placeCursor()
+scr.setTextColor(colors.white)
+
+end
+
+local function getWordAt(line,char)		--Gets word at given line and character
+local text=fileText[line]
+local start=1
+local foundWord=nil
+repeat
+	local match=string.match(text,"^_*%a+%w*%.?%a*%w*")
+	if match~=nil then
+		if start<=char and start+#match-1>=char then
+			foundWord=match
+		end
+		text=text:sub(#match+1)
+		start=start+#match
+	else
+		match=string.match(text,"^.")
+		if match==nil then
+			foundWord=false
+		else
+			text=text:sub(#match+1)
+			start=start+#match
+		end
+	end
+until foundWord~=nil
+return foundWord
+end
+
+files.open=function(file)				--Loads file into memory
+if type(file)~="string" then return false end
+if not fs.exists(file) then
+	local popB=createPopup("No File","File \""..file.."\" does not exist",{"Create","Cancel"})
+	if popB=="Create" then return files.new(file) 
+	else return false end
+elseif fs.isDir(file) then
+	createPopup("Error","\""..file.."\" is a directory","OK")
+	return false
+end
+
+loadedFile=file
+local f=fs.open(file,"r")
+local fText=""
+local fLine=1
+fileText={""}
+repeat
+	fText=f.readLine()
+	fileText[fLine]=fText
+	fLine=fLine+1
+until fText==nil
+f.close()
+basicReset()
+
+return true
+end
+
+files.save=function(file,silent)		--Saves current memory to file
+if file==nil then 
+	popButton,popText=createPopup("Save File","Save File As:",{"Save","Cancel"},true)
+	if popButton=="Save" then
+		file=popText
+	else
+		return false
+	end
+end
+if type(file)~="string" then return false end
+if fs.isDir(file) and silent then
+	repeat
+		local popB,popT=createPopup("New File","Save new file as:",{"Create","Cancel"},true)
+		if popB=="Cancel" then
+			return false
+		end
+		file=popT
+	until files.new(file,true)
+	loadedFile=file
+elseif fs.isDir(file) then
+	createPopup("Error","\""..file.."\" is a directory.","OK")
+	return false
+elseif fs.isReadOnly(file) then
+	createPopup("ROM","File \""..file.."\" is read-only.","OK")
+	return false
+elseif fs.exists(file) and not silent then
+	local popB=createPopup("File Exists","File \""..file.."\" exists, overwrite?",{"Yes","No"})
+	if popB=="No" then return false end
+end
+local f=fs.open(file,"w")
+for x=1,#fileText do
+	f.writeLine(fileText[x])
+end
+f.close()
+tabMessage("Saved")
+return true
+end
+
+files.new=function(file,onlyCreate)		--Creates new file
+if type(file)~="string" then return false end
+if fs.isDir(file) then
+	createPopup("Error","\""..file.."\" is a directory","OK")
+	return false
+elseif fs.exists(file) then
+	local popB
+	if onlyCreate then
+		popB=createPopup("File Exists","File \""..file.."\" exists",{"Overwrite","Cancel"})
+	else
+		popB=createPopup("File Exists","File \""..file.."\" exists",{"Overwrite","Open","Cancel"})
+	end
+	if popB=="Cancel" then return false 
+	elseif popB=="Open" then return files.open(file) end
+end
+
+local f=fs.open(file,"w")
+f.writeLine("")
+f.close()
+if not onlyCreate then
+	fileText={""}
+	loadedFile=file
+	os.queueEvent("fullReset")
+end
+
+return true
+end
+
+files.close=function(file)				--Closes current file
+local popB=createPopup("Save?","Do you wish to save \""..file.."\"?",{"Yes","No"})
+if popB=="Yes" then files.save(file,true) end
+fileText={""}
+loadedFile=""
+os.queueEvent("fullReset")
+return true
+end
+
+files.print=function(file)				--Prints the file
+if printer~=nil then
+	if printer.getPaperLevel()<1 then
+		createPopup("Print Error","Printer out of paper.","OK")
+		return false
+	elseif prtiner.getInkLevel()<1 then
+		createPopup("Print Error","Printer out of ink.","OK")
+		return false
+	else
+		--Remeber to do something here
+		createPopup("Printing","Sorry, Printing is not available yet.","OK")
+		return true
+	end
+else
+	createPopup("No Printer","No printer found.","OK")
+	return false
+end
+return false
+end
+
+lines.copy=function()					--Copies line/highlighted text
+if highlight.a~=nil then
+	clipboard=getHighlightText()
+else
+	clipboard=fileText[curLine]
+end
+return true
+end
+
+lines.delete=function()					--Deletes line/highlighted text
+if highlight.a~=nil then
+	if highlight[1][1]==highlight[2][1] then
+		fileText[highlight[1][1]]=fileText[highlight[1][1]]:sub(0,highlight[1][2]-1)..fileText[highlight[1][1]]:sub(highlight[2][2]+1)
+	else
+		local deleted=0
+		for x=highlight[1][1],highlight[2][1] do
+			if x==highlight[1][1] then
+				fileText[x]=fileText[x]:sub(0,highlight[1][2]-1)
+			elseif x==highlight[2][1] then
+				fileText[x-deleted]=fileText[x-deleted]:sub(highlight[2][2]+1)
+			elseif highlight[2][1]-highlight[1][1]>1 then
+				table.remove(fileText,x-deleted)
+				deleted=deleted+1
+			end
+		end
+		fileText[highlight[1][1]]=fileText[highlight[1][1]]..fileText[highlight[2][1]-deleted]
+		table.remove(fileText,highlight[2][1]-deleted)
+	end
+	if highlight[1]~=highlight.a then
+		curLine=highlight.b[1]
+		curChar=highlight.b[2]
+	end
+	highlight={}
+else
+	if #fileText~=1 then table.remove(fileText,curLine) end
+end
+checkCursor()
+return true
+end
+
+lines.cut=function()					--Cuts line/highlighted text
+lines.copy()
+lines.delete()
+return true
+end
+
+lines.paste=function()					--Pastes contents of clipboard to the current cursor pos
+if highlight.a~=nil then
+	lines.delete()
+end
+
+if type(clipboard)=="string" then
+	fileText[curLine]=string.sub(fileText[curLine],1,curChar-1)..clipboard..string.sub(fileText[curLine],curChar)
+	curChar=curChar+#clipboard
+	checkView()
+	return true
+elseif type(clipboard)=="table" then
+	if #clipboard==1 then
+		fileText[curLine]=string.sub(fileText[curLine],1,curChar-1)..clipboard[1]..string.sub(fileText[curLine],curChar)
+		curChar=curChar+#clipboard[1]
+	else
+		local afterText=string.sub(fileText[curLine],curChar)
+		fileText[curLine]=string.sub(fileText[curLine],1,curChar-1)..clipboard[1]
+		for fLine=2,#clipboard do
+			table.insert(fileText,curLine+fLine-1,clipboard[fLine])
+		end
+		fileText[curLine+#clipboard-1]=fileText[curLine+#clipboard-1]..afterText
+		curLine=curLine+#clipboard-1
+		curChar=#clipboard[#clipboard]+1
+	end
+	checkView()
+	return true
+end
+
+return false
+end
+
+lines.goto=function()					--Creates goto popup that skips to the line the user requests
+popButton,popText=createPopup("Goto","Goto Line",{"Go","Cancel"},true)
+
+if popButton=="Go" then
+	if tonumber(popText) and tonumber(popText)>0 then
+		curLine=tonumber(popText)
+		if curLine>#fileText then curLine=#fileText end
+		curChar=1
+		renderStart.y=math.floor(curLine-(scrY/2))
+		checkView()
+		shouldRedraw=true	
+	else
+		createPopup("Error","Please enter a positive number","OK")
+	end
+end
+
+end
+
+text.find=function(findText)			--Finds text within the file, need to fix: box location.
+if findText==nil then findText="" end
+repeat
+	local popB,popT=createPopup("Find","String to find",{"Next","Exit"},findText,{1,1})		--Add 'Prev' later
+	if popB~="Exit" and popT=="" then createPopup("Find Error","Please enter something to find","Close") popB="" end
+	findText=popT
+	if popB=="Next" then
+		local foundText=""
+		local start={curChar,curLine}
+		local looped=false
+		local didFind=false
+		repeat
+			foundText=string.match(fileText[curLine],findText,curChar+1)
+			if foundText~=nil then
+				didFind=true
+				curChar=string.find(fileText[curLine],findText,curChar+1)
+			else
+				curLine=curLine+1
+				curChar=0
+				if curLine>#fileText then
+					curLine=1
+					looped=true
+				end
+			end
+		until didFind or (curLine>=start[2] and looped)
+		if not didFind then
+			createPopup("Not Found",findText.." Was not found","OK")
+		end
+		checkView()
+		drawViewableLines(1)
+		scr.setBackgroundColor(themeColors.highlightBack)
+		scr.setTextColor(themeColors.highlightText)
+		placeCursor()
+		scr.write(foundText)
+	elseif popB=="Prev" then
+
+	end
+until  popB=="Exit"
+return true
+end
+
+local function errorCheck(noError)		--if noError is 1, don't show the "no error" popup, if noError is 2 don't show any popups
+local codeText=""
+if noError==nil then noError=0 end
+for x=1,#fileText do
+	codeText=codeText..fileText[x].."\n"
+end
+local theProgram,theError=loadstring(codeText)
+--[[
+if not theError then
+	local didPass,aError=pcall(theProgram)
+	if not didPass then theError=aError end
+end
+]]--
+errorLine=nil
+if theError~=nil then
+	local eStart=theError:find("]",1,true)
+	theError=string.sub(theError,eStart+2)
+	local eStart=theError:find(":",1,true)
+	errorLine=tonumber(string.sub(theError,1,eStart-1))
+	theError=string.sub(theError,eStart+1)
+	if noError~=2 then createPopup("Errare humanum est",{"Line:"..errorLine,tostring(theError)},"OK") end
+	return false
+elseif noError==0 then
+	createPopup("No Error","No Error Detected","OK")
+end
+
+return true,theProgram
+end
+
+local function secretFluttershy()		--Super Duper Secret, don't look at
+scr.setBackgroundColor(colors.black)
+scr.clear()
+scr.setCursorBlink(false)
+
+local offset={["x"]=0,["y"]=0}
+local blinkSpeed=0.1
+local flapSpeed=0.1
+local flaps=2
+local blinks=1
+
+	local function drawPixels(posX,posY,pixles)
+		scr.setCursorPos(offset.x+posX,offset.y+posY)
+		scr.write(string.rep(" ",pixles))
+	end
+
+scr.setBackgroundColor(colors.pink)
+drawPixels(8,1,10)
+drawPixels(6,2,14)
+drawPixels(6,3,12)
+drawPixels(6,4,20)
+drawPixels(8,5,20)
+drawPixels(8,6,20)
+drawPixels(22,7,4)
+drawPixels(22,8,2)
+drawPixels(8,9,16)
+drawPixels(6,10,8)
+drawPixels(4,11,8)
+drawPixels(36,12,4)
+drawPixels(34,13,6)
+drawPixels(34,14,6)
+drawPixels(36,15,4)
+drawPixels(36,16,4)
+drawPixels(34,17,6)
+drawPixels(30,18,8)
+scr.setBackgroundColor(colors.yellow)
+drawPixels(20,2,2)
+drawPixels(16,3,6)
+drawPixels(10,4,12)
+drawPixels(10,5,12)
+drawPixels(10,6,12)
+drawPixels(8,7,14)
+drawPixels(8,8,14)
+drawPixels(10,9,10)
+drawPixels(16,10,12)
+drawPixels(18,11,12)
+drawPixels(20,12,12)
+drawPixels(20,13,12)
+drawPixels(20,14,14)
+drawPixels(20,15,16)
+drawPixels(20,16,16)
+drawPixels(20,17,14)
+scr.setBackgroundColor(colors.black)
+drawPixels(22,16,2)
+drawPixels(22,17,2)
+drawPixels(12,5,2)
+drawPixels(12,6,2)
+drawPixels(12,7,2)
+scr.setBackgroundColor(colors.lightGray)
+drawPixels(22,10,2)
+drawPixels(22,11,2)
+drawPixels(24,12,2)
+drawPixels(26,13,6)
+drawPixels(18,12,2)
+drawPixels(18,13,2)
+drawPixels(18,14,2)
+drawPixels(18,15,2)
+drawPixels(18,16,2)
+drawPixels(22,14,2)
+drawPixels(22,15,4)
+
+	local function blinkClear()
+		sleep(blinkSpeed)
+		scr.setBackgroundColor(colors.yellow)
+		drawPixels(10,5,6)
+		drawPixels(10,6,6)
+		drawPixels(10,7,6)
+	end
+
+	local function blink()
+		blinkClear()
+		scr.setBackgroundColor(colors.black)
+		drawPixels(12,6,2)
+		drawPixels(12,7,4)
+		blinkClear()
+		scr.setBackgroundColor(colors.black)
+		drawPixels(10,7,6)
+		blinkClear()
+		scr.setBackgroundColor(colors.black)
+		drawPixels(12,6,2)
+		drawPixels(12,7,4)
+		blinkClear()
+		scr.setBackgroundColor(colors.black)
+		drawPixels(12,5,2)
+		drawPixels(12,6,2)
+		drawPixels(12,7,2)
+	end
+
+	local function flapClear()
+		scr.setBackgroundColor(colors.black)
+		drawPixels(26,7,2)
+		drawPixels(24,8,10)
+		drawPixels(24,9,10)
+		drawPixels(24,10,8)
+		drawPixels(24,11,14)
+		drawPixels(26,12,12)
+	end
+
+	local function flap()
+		scr.setBackgroundColor(colors.yellow)
+		drawPixels(24,9,4)
+		drawPixels(24,10,8)
+		drawPixels(24,11,10)
+		drawPixels(26,12,4)
+		scr.setBackgroundColor(colors.lightGray)
+		drawPixels(24,9,2)
+		drawPixels(26,10,2)
+		drawPixels(28,11,2)
+		drawPixels(30,12,4)
+		sleep(flapSpeed)
+		scr.setBackgroundColor(colors.yellow)
+		drawPixels(24,9,2)
+		drawPixels(24,10,8)
+		drawPixels(24,11,8)
+		drawPixels(26,12,8)
+		scr.setBackgroundColor(colors.lightGray)
+		drawPixels(24,8,4)
+		drawPixels(26,9,2)
+		drawPixels(30,9,4)
+		drawPixels(30,11,4)
+		drawPixels(32,12,2)
+		sleep(flapSpeed)
+		scr.setBackgroundColor(colors.yellow)
+		drawPixels(26,7,2)
+		drawPixels(24,8,4)
+		drawPixels(32,8,2)
+		drawPixels(24,9,4)
+		drawPixels(30,9,4)
+		drawPixels(24,10,8)
+		drawPixels(24,11,14)
+		drawPixels(26,12,12)
+		sleep(flapSpeed*2)
+		flapClear()
+		scr.setBackgroundColor(colors.yellow)
+		drawPixels(24,9,2)
+		drawPixels(24,10,8)
+		drawPixels(24,11,8)
+		drawPixels(26,12,8)
+		scr.setBackgroundColor(colors.lightGray)
+		drawPixels(24,8,4)
+		drawPixels(26,9,2)
+		drawPixels(30,9,4)
+		drawPixels(30,11,4)
+		drawPixels(32,12,2)
+		sleep(flapSpeed)
+		flapClear()
+		scr.setBackgroundColor(colors.yellow)
+		drawPixels(24,9,4)
+		drawPixels(24,10,8)
+		drawPixels(24,11,10)
+		drawPixels(26,12,4)
+		scr.setBackgroundColor(colors.lightGray)
+		drawPixels(24,9,2)
+		drawPixels(26,10,2)
+		drawPixels(28,11,2)
+		drawPixels(30,12,4)
+		sleep(flapSpeed)
+		flapClear()
+		scr.setBackgroundColor(colors.yellow)
+		drawPixels(24,10,4)
+		drawPixels(24,11,6)
+		drawPixels(26,12,6)
+	end
+
+for x=1,flaps do
+	flap()
+	sleep(0.5)
+end
+for x=1,blinks do
+	blink()
+	sleep(0.5)
+end
+sleep(1)
+scr.setCursorBlink(true)
+end
+
+local function runProgram()				--Runs the current, edited file
+local doRun,theProgram=errorCheck(1)
+if doRun then
+	local didRun,theError=pcall(theProgram	)
+	if not didRun then
+		createPopup("Program Crashed",theError,"OK")
+	end
+end
+
+end
+
+local function runContext(item)			--Run command based on what was pressed on context menu
+local popButton,popText=nil,nil
+if item=="New" then
+	popButton,popText=createPopup("New File","New File Name:",{"Create","Cancel"},true)
+	if popButton=="Create" then
+		files.new(popText)
+	end
+elseif item=="Open" then
+	popButton,popText=createPopup("Open File","File Name:",{"Open","Cancel"},true)
+	if popButton=="Open" then
+		files.open(popText)
+	end
+elseif item=="Open Dir" then
+	createPopup("Woops","Tabs are not yet implemented","OK D:")
+elseif item=="Save" then
+	files.save(loadedFile,true)
+elseif item=="Save As" then
+	local didSave=files.save()
+	if didSave then loadedFile=popText end
+elseif item=="Save All" then
+	createPopup("Woops","Tabs are not yet implemented","OK D:")
+elseif item=="Print" then
+	files.print(loadedFile)
+elseif item=="Close" then
+	popButton=createPopup("Close File","Are you that you wish to close this file?",{"Yes","No"})
+	if popButton=="Yes" then
+		files.close(loadedFile)
+	end
+elseif item=="Close All" then
+	reatePopup("Woops","Tabs are not yet implemented","OK D:")
+elseif item=="Run" then
+	runProgram()
+elseif item=="Undo" then
+	createPopup("Woops","Not yet implemented","OK D:")
+elseif item=="Redo" then
+	createPopup("Woops","Not yet implemented","OK D:")
+elseif item=="Cut Line" then
+	lines.cut()
+elseif item=="Chunk Cut" then
+	popButton,popText=createPopup("Cut","First Line",{"OK","Cancel"},true)
+	if popButton=="OK" then
+		if tonumber(popText)~=nil and tonumber(popText)>0 then
+			local line1=tonumber(popText)
+			local line2=nil
+			popButton,popText=createPopup("Cut","Second Line",{"OK","Cancel"},true)
+			if popButton=="OK" then
+				if tonumber(popText) and tonumber(popText)>0 then
+					line2=tonumber(popText)
+					clipboard={}
+					for x=1,line2-line1+1 do
+						clipboard[x]=fileText[line1]
+						table.remove(fileText,line1)
+					end
+					checkCursor()
+				else
+					createPopup("Error","Please enter a positive number","OK")
+				end
+			end	
+		else
+			createPopup("Error","Please enter a positive number","OK")
+		end
+	end
+elseif item=="Copy Line" then
+	lines.copy()
+elseif item=="Chunk Copy" then
+	popButton,popText=createPopup("Copy","First Line",{"OK","Cancel"},true)
+	if popButton=="OK" then
+		if tonumber(popText) and tonumber(popText)>0 then
+			local line1=tonumber(popText)
+			local line2=nil
+			popButton,popText=createPopup("Copy","Second Line",{"OK","Cancel"},true)
+			if popButton=="OK" then
+				if tonumber(popText) and tonumber(popText)>0 then
+					line2=tonumber(popText)
+					clipboard={}
+					for x=1,line2-line1+1 do
+						clipboard[x]=fileText[line1+x-1]
+					end
+					checkCursor()
+				else
+					createPopup("Error","Please enter a positive number","OK")
+				end
+			end	
+		else
+			createPopup("Error","Please enter a positive number","OK")
+		end
+	end
+elseif item=="Paste" then
+	lines.paste()
+elseif item=="Delete Line" then
+	lines.delete()
+elseif item=="Chunk Delete" then
+	popButton,popText=createPopup("Delete","First Line",{"OK","Cancel"},true)
+	if popButton=="OK" then
+		if tonumber(popText) and tonumber(popText)>0 then
+			local line1=tonumber(popText)
+			local line2=nil
+			popButton,popText=createPopup("Delete","Second Line",{"OK","Cancel"},true)
+			if popButton=="OK" then
+				if tonumber(popText) and tonumber(popText)>0 then
+					line2=tonumber(popText)
+					clipboard={}
+					for x=1,line2-line1+1 do
+						table.remove(fileText,line1)
+					end
+					checkCursor()
+				else
+					createPopup("Error","Please enter a positive number","OK")
+				end
+			end	
+		else
+			createPopup("Error","Please enter a positive number","OK")
+		end
+	end
+elseif item=="Find" then
+	text.find()
+elseif item=="Replace" then
+	createPopup("Sorry!","Feature does not exist yet","OK")
+elseif item=="Find In Files" then
+	createPopup("Sorry!","Feature does not exist yet","OK")
+elseif item=="Goto Line" then
+	lines.goto()
+elseif item=="Change Tab" then
+	createPopup("Why?","Tabs don't exist yet, Why are you trying to switch tabs?","OK")
+elseif item=="Clipboard" then
+	createPopup("Sorry!","You have a clipboard, just no special viewer for it","OK")
+elseif item=="Functions" then
+	createPopup("Sorry!","Functions are not currently functioning","OK")
+elseif item=="Help" then
+	local wasWord=createHelpPopup(getWordAt(curLine,curChar))
+	if wasWord==false then createPopup("Help","Unknown Word","Close") end
+elseif item=="Show Line Numbers" then
+	createPopup("Silly","They are showing","OK")
+elseif item=="Scroll Speed" then
+	createPopup("It's","1:1","OK")
+elseif item=="Change Theme" then
+	createPopup("Sorry!",{"This is at the bottom of my list, you could edit the code manually","LINE:78"},"OK")
+elseif item=="Change Highlighting" then
+	--createPopup("Sorry!","A little higher on the list, you could change it manually, however that would take a while","OK")
+elseif item=="Change Language" then
+	createPopup("Lo siento!","Esto significa en realidad lenguaje de codificacion","OK")
+end
+
+return true
+end
+
+local function keyEvent(eve)
+
+if lastKey[1]==29 and lastKey[2]+1>=os.clock() then --L Ctrl was pressed in the last second
+	--Pasted is another event
+	if eve[2]==45 then			--X Cut
+		return lines.cut()
+	elseif eve[2]==46 then		--C Copy
+		lines.copy()
+	elseif eve[2]==48 then		--B Paste (Clipboard)
+		return lines.paste()
+	elseif eve[2]==32 then		--D Delete
+		return lines.delete()
+	elseif eve[2]==24 then		--O Open
+		local popButton,popText=createPopup("Open File","File Name:",{"Open","Cancel"},true)
+		if popButton=="Open" then
+			files.open(popText)
+		end
+	elseif eve[2]==25 then		--P Print
+		files.print(loadedFile)
+	elseif eve[2]==49 then		--N New
+		local popButton,popText=createPopup("New File","New File Name:",{"Create","Cancel"},true)
+		if popButton=="Create" then
+			files.new(popText)
+		end
+	elseif eve[2]==31 then		--S Save
+		files.save(loadedFile,true)
+	elseif eve[2]==17 then		--W Close
+		files.close(loadedFile)
+		return true
+	elseif eve[2]==18 then		--E ErrorCheck
+		errorCheck(0)
+		return false
+	elseif eve[2]==33 then		--F Find
+		text.find()
+	elseif eve[2]==34 then		--G Goto
+		lines.goto()
+	elseif eve[2]==199 then		--Home
+		curChar=1
+		curLine=1
+		checkView()
+		return true
+	elseif eve[2]==207 then		--End
+		curChar=1
+		curLine=#fileText
+		checkView()
+		return true
+	end
+elseif eve[2]==14 then		--Backspace
+	if highlight.a~=nil then
+		lines.delete()
+		return true
+	else
+		if curChar==1 then
+			if curLine>1 then
+				curChar=#fileText[curLine-1]+1
+				fileText[curLine-1]=fileText[curLine-1]..fileText[curLine]
+				table.remove(fileText,curLine)
+				curLine=curLine-1
+				return true
+			end
+		else
+			fileText[curLine]=string.sub(fileText[curLine],1,curChar-2)..string.sub(fileText[curLine],curChar)
+			curChar=curChar-1
+			return true
+		end
+	end
+elseif eve[2]==28 then		--Enter
+	if highlight.a~=nil then
+		lines.delete()
+	end
+	table.insert(fileText,curLine+1,string.sub(fileText[curLine],curChar))
+	fileText[curLine]=string.sub(fileText[curLine],1,curChar-1)
+	local startSpaces=""
+	if settings.rememberTab.Set then startSpaces=string.match(fileText[curLine],"^%s*") end
+	if settings.autoIndent.Set and fileText[curLine]:sub(-4)=="then" or fileText[curLine]:sub(-6)=="repeat" or fileText[curLine]:sub(-2)=="do" or fileText[curLine]:sub(-4)=="else" then				--Until I implement a better tabbing system
+		startSpaces=startSpaces.."  "
+	end
+	if not settings.superSerious.Set and fileText[curLine]=="nevardon.QuintupleAgent" then
+		secretFluttershy()
+		shouldRedraw=true
+	end
+	curLine=curLine+1
+	if startSpaces then 
+		fileText[curLine]=startSpaces..fileText[curLine]
+		curChar=#startSpaces+1
+	else
+		curChar=1
+	end
+	return true
+elseif eve[2]==200 then		--Up
+	if highlight.a~=nil then
+		curLine=highlight.b[1]
+		curChar=highlight.b[2]
+		highlight={}
+	end
+	curLine=curLine-1
+	if curLine<1 then curLine=1 end
+	if curChar>#fileText[curLine]+1 then curChar=#fileText[curLine]+1 end
+	return true
+elseif eve[2]==203 then		--Left
+	if highlight.a~=nil then
+		curLine=highlight[1][1]
+		curChar=highlight[1][2]
+		highlight={}
+	end
+	curChar=curChar-1
+	if curChar<1 then 
+		if curLine~=1 then
+			curLine=curLine-1
+			curChar=#fileText[curLine]+1
+		else
+			curChar=1
+			return false
+		end
+		return true
+	end
+	return true
+elseif eve[2]==205 then		--Right
+	if highlight.a~=nil then
+		curLine=highlight[2][1]
+		curChar=highlight[2][2]
+		highlight={}
+	end
+	curChar=curChar+1
+	if curChar>#fileText[curLine]+1 then 
+		if curLine~=#fileText then
+			curLine=curLine+1
+			curChar=1 
+		else
+			curChar=#fileText[curLine]+1
+			return false
+		end
+		return true
+	end
+	return true
+elseif eve[2]==208 then		--Down
+	if highlight.a~=nil then
+		curLine=highlight.b[1]
+		curChar=highlight.b[2]
+		highlight={}
+	end
+	curLine=curLine+1
+	if curLine>#fileText then curLine=#fileText end
+	if curChar>#fileText[curLine]+1 then curChar=#fileText[curLine]+1 end
+	return true
+elseif eve[2]==15 then 		--Tab
+	if highlight.a~=nil then
+		for t=highlight[1][1],highlight[2][1] do
+			fileText[t]="  "..fileText[t]
+		end
+		highlight[1][2]=1
+		highlight[2][2]=#fileText[highlight[2][1]]
+	else
+		fileText[curLine]=string.sub(fileText[curLine],1,curChar-1).."  "..string.sub(fileText[curLine],curChar)
+		curChar=curChar+2
+	end
+	return true
+elseif eve[2]==201 then		--Page Up
+	curChar=1
+	curLine=curLine-scrY+1
+	checkView()
+	return true
+elseif eve[2]==209 then		--Page Down
+	curChar=1
+	curLine=curLine+scrY-1
+	checkView()
+	return true
+elseif eve[2]==199 then		--Home
+	curChar=1
+	checkView()
+	return true
+elseif eve[2]==207 then		--End
+	curChar=#fileText[curLine]+1
+	checkView()
+	return true
+elseif eve[2]==211 then		--Delete Key
+	if highlight.a~=nil then
+		lines.delete()
+		return true
+	else
+		if curChar==#fileText[curLine]+1 then
+			if curLine<#fileText then
+				fileText[curLine]=fileText[curLine]..fileText[curLine+1]
+				table.remove(fileText,curLine+1)
+			end
+		else
+			fileText[curLine]=string.sub(fileText[curLine],1,curChar-1)..string.sub(fileText[curLine],curChar+1)
+		end
+		return true
+	end
+elseif eve[2]==56 then
+	if not settings.menuBar.Set then
+		drawMenu(true)
+	end
+end
+
+return false
+end
+
+local function charEvent(eve)
+if highlight.a~=nil then
+	lines.delete()
+end
+if eve[2]=="(" and settings.autoAddClosers.Set then
+	fileText[curLine]=string.sub(fileText[curLine],1,curChar-1).."()"..string.sub(fileText[curLine],curChar)
+	curChar=curChar+1
+elseif eve[2]=="[" and settings.autoAddClosers.Set then
+	fileText[curLine]=string.sub(fileText[curLine],1,curChar-1).."[]"..string.sub(fileText[curLine],curChar)
+	curChar=curChar+1
+elseif eve[2]=="\"" and settings.autoAddClosers.Set then
+	fileText[curLine]=string.sub(fileText[curLine],1,curChar-1).."\"\""..string.sub(fileText[curLine],curChar)
+	curChar=curChar+1
+elseif eve[2]=="'" and settings.autoAddClosers.Set then
+	fileText[curLine]=string.sub(fileText[curLine],1,curChar-1).."''"..string.sub(fileText[curLine],curChar)
+	curChar=curChar+1
+elseif eve[2]=="{" and settings.autoAddClosers.Set then
+	fileText[curLine]=string.sub(fileText[curLine],1,curChar-1).."{}"..string.sub(fileText[curLine],curChar)
+	curChar=curChar+1
+else
+	fileText[curLine]=string.sub(fileText[curLine],1,curChar-1)..eve[2]..string.sub(fileText[curLine],curChar)
+	curChar=curChar+1
+end
+
+checkView()
+return true
+end
+
+local function scrollEvent(eve)
+local renederPre=renderStart.y
+renderStart.y=renderStart.y+(eve[2]*settings.xScroll.Set)
+if renderStart.y+scrY>#fileText then renderStart.y=#fileText-scrY end
+if renderStart.y<0 then renderStart.y=0 end
+
+if renderPre==renderStart.y then return false else return true end
+end
+
+local function clickEvent(eve)
+if ((eve[4]~=tscrY and settings.menuBar.Set) or (settings.menuBar.Set==false and menuWait==false)) and eve[4]>renderSpace.y and eve[3]>renderSpace.x then
+	if eve[2]==1 then
+		highlight={{},{}}
+		if renderStart.y+eve[4]-renderSpace.y<=#fileText then
+			curLine=renderStart.y+eve[4]-renderSpace.y
+			curChar=renderStart.x+eve[3]-renderSpace.x
+			if curChar>#fileText[curLine]+1 then curChar=#fileText[curLine]+1 end
+			checkView()
+			return true
+		end
+		return false
+	elseif eve[2]==2 then
+		createHelpPopup(getWordAt(renderStart.y+eve[4]-renderSpace.y,renderStart.x+eve[3]-renderSpace.x))
+	end
+elseif eve[4]==tscrY and (settings.menuBar.Set or menuWait) and eve[2]==1 then
+	if eve[3]>=1 and eve[3]<=4 then
+		runContext(createContext("File",1,scrY))
+	elseif eve[3]>=7 and eve[3]<=10 then
+		runContext(createContext("Edit",7,scrY))
+	elseif eve[3]>=13 and eve[3]<=18 then
+		runContext(createContext("Search",13,scrY))
+	elseif eve[3]>=21 and eve[3]<=24 then
+		runContext(createContext("View",21,scrY))
+	elseif eve[3]>=27 and eve[3]<=34 then
+		--runContext(createContext("Settings",27,scrY))
+		createSettingsMenu()
+	elseif eve[3]>=37 and eve[3]<=40 then
+		keepEditing=false
+	end
+end
+menuWait=false
+return false
+end
+
+local function dragEvent(eve)
+if renderStart.y+eve[4]-renderSpace.y-1<#fileText and eve[4]>renderSpace.y and eve[4]<=scrY+1 then
+	if eve[2]==1 and eve[3]>renderSpace.x then							--Highlight is line then char
+		local toReturn=false
+		highlight.b={renderStart.y+eve[4]-renderSpace.y,renderStart.x+eve[3]-renderSpace.x}	
+		if highlight.a~=nil then
+			if highlight.b[1]==highlight.a[1] then
+				if highlight.b[2]<highlight.a[2] then
+					highlight[1]=highlight.b
+					highlight[2]=highlight.a
+				else
+					highlight[1]=highlight.a
+					highlight[2]=highlight.b
+				end
+			elseif highlight.b[1]<highlight.a[1] then
+				highlight[1]=highlight.b
+				highlight[2]=highlight.a
+			elseif highlight.b[1]>highlight.a[1] then
+				highlight[1]=highlight.a
+				highlight[2]=highlight.b
+			else
+				highlight[2]=highlight.b
+			end
+			toReturn=true
+		else
+			highlight.a={curLine,curChar}
+			highlight.b=highlight.a
+			highlight[1]={curLine,curChar}
+			highlight[2]=highlight.b
+			toReturn=true
+		end
+		return toReturn
+	end
+end
+return false
+end
+
+scr.setTextColor(themeColors.default)
+scr.setBackgroundColor(themeColors.background)
+scr.clear()
+scr.setCursorPos(1,1)
+scr.setCursorBlink(true)
+
+local function noColorSet()
+settings.syntaxHL.Set=false
+settings.syntaxHL.CanSet=false
+themeColors.popBoxAlt=colors.white
+themeColors.popBoxButton=colors.white
+themeColors.popBoxText=colors.black
+themeColors.contextBack=colors.black
+themeColors.highlightBack=colors.black
+themeColors.menuBack=colors.white
+themeColors.tabBack=colors.white
+themeColors.lineNBack=colors.white
+themeColors.lineNText=colors.black
+themeColors.lineError=colors.white
+themeColors.lineCur=colors.white
+themeColors.lineCurError=colors.white
+themeColors.settingsOff=colors.white
+themeColors.settingsOn=colors.black
+themeColors.settingsUndef=colors.black
+themeColors.settingsNoEdit=colors.black
+themeColors.settingsLine=colors.black
+themeColors.settingsLineAlt=colors.black
+end
+
+if keepEditing then	
+	if not fs.exists(baseFile) then
+		fs.makeDir(baseFile)
+		saveSettings()
+		fs.makeDir(baseFile.."/themes")
+		saveTheme("default")
+	else
+		if not fs.exists(baseFile.."/themes") then
+			fs.makeDir(baseFile.."/themes")
+			saveTheme("default")
+		end
+		loadSettings()
+		loadTheme("default")
+		recheckSettings()
+		if not isColor then noColorSet() end
+	end
+	if settings.bypassWindow.Set and type(term.native)=="function" then		--Bypass the Window API for faster drawing
+		term.redirect(term.native())
+	end
+	if type(startFile)=="string" and fs.exists(startFile) and not fs.isDir(startFile) then
+		if fs.isReadOnly(startFile) then
+			createPopup("Warning",{startFile.." Is Read-Only","Any changes cannot be saved"},"OK")
+			files.open(startFile)
+		else
+			files.open(startFile)
+		end
+	elseif startFile=="string" and fs.isDir(startFile) then
+		createPopup("Can't open directory",startFile.." Is a directory","OK")
+	elseif type(startFile)=="string" and not fs.exists(startFile) then
+		files.new(startFile)
+	else
+		local firstFile
+		repeat
+			scr.clear()
+			local popB=nil
+			popB,firstFile=createPopup("Open","File Name",{"Open","Quit"},startDir)
+			if popB=="Quit" then keepEditing=false end
+		until keepEditing==false or files.open(firstFile)
+	end
+	os.queueEvent("fullRedraw")
+end
+
+local function mainLoop()
+while keepEditing do
+	if shouldRedraw then os.queueEvent("fullRedraw") shouldRedraw=false end
+	local eve={os.pullEvent()}
+	local redraw=false
+	local drawType=0					--0=Normal, 1=AllScreen
+	local startLine=curLine
+
+	if eve[1]=="char" then
+		redraw=charEvent(eve)
+	elseif eve[1]=="key" then
+		redraw=keyEvent(eve)
+		lastKey={eve[2],os.clock()}
+		if redraw then checkView() end
+	elseif eve[1]=="mouse_scroll" then
+		redraw=scrollEvent(eve)
+	elseif eve[1]=="mouse_click" then
+		redraw=clickEvent(eve)
+	elseif eve[1]=="mouse_drag" then
+		redraw=dragEvent(eve)
+	elseif eve[1]=="paste" then
+		if highlight.a~=nil then lines.delete() end
+		fileText[curLine]=string.sub(fileText[curLine],1,curChar-1)..eve[2]..string.sub(fileText[curLine],curChar)
+		curChar=curChar+#eve[2]
+		checkView()
+		redraw=true
+	elseif eve[1]=="fullRedraw" then
+		redraw=true
+		drawType=1
+	elseif eve[1]=="fullReset" then
+		redraw=true
+		drawType=1
+		basicReset()
+	elseif eve[1]=="timer" and eve[2]==tabTimer then
+		tabMessage("",true)
+	end
+
+	if redraw then
+		if settings.autoErrChk.Set and startLine~=curLine then errorCheck(2) end
+		drawViewableLines(drawType)
+	end
+
+end
+end
+
+local _,err=pcall(mainLoop)
+if err and err~="Terminated" then
+	local popB=createPopup("Looks like I messed up",{"Please post this error on the forums","Along with what you were doing to cause it"," ",err},{"Will do","Debug List"})
+	if popB=="Debug List" then
+		createPopup("Debug List",{"curLine:"..tostring(curLine),"curChar:"..tostring(curChar),highlight.a~=nil and "highlight:{"..tostring(highlight[1][1])..","..tostring(highlight[1][2]).."},{"..tostring(highlight[2][1])..","..tostring(highlight[2][2]).."}" or "highlight:{nil,nil}",highlight.a~=nil and "highlight.a:{"..tostring(highlight.a[1])..","..tostring(highlight.a[2]).."}" or "highlight.a: {nil,nil}","errorLine:"..tostring(errorLine),"loadedFile:"..tostring(loadedFile),"lastKey:{"..tostring(lastKey[1])..","..tostring(lastKey[2]).."}","Lines:"..#fileText},"OK")
+	end
+end
+
+if isColor then
+	scr.setBackgroundColor(colors.black)
+	scr.setTextColor(colors.white)
+	scr.clear()
+	scr.setCursorPos(1,1)
+	if not settings.superSerious.Set then
+		local specialExit=math.random(1,55)
+		if specialExit==6 then
+			print("Thank you, Now close Minecraft and go watch youtube or something.")
+			print("~A concerned citizen")
+		elseif specialExit==25 then
+			print("Mirumque Latine nesciant et legere.")
+		elseif specialExit==1 then
+			print("YOU ARE NUMBER 1, YOU ARE NUMBER 1!")
+			print("~Smitty Werbenjagermanjensen")
+		elseif specialExit==50 then
+			print("Lorem ipsum dolor sit amet, consectetur adipiscing elit,")
+			print("sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.")
+		elseif specialExit==44 then
+			print("404, Thank You message not found.")
+			print("By Name not Found")
+		elseif specialExit==40 then
+			print("Help, I am trapped in GravityScore's basement.")
+		elseif specialExit==55 then
+			print("Now supporting non-advanced computers!")
+			print("Not really")
+		elseif specialExit==23 then
+			print("DAN!")
+			print("Hi")
+		elseif specialExit==2 then
+			print("TheOdd-ByteMe and I'll Lyqydate all your originalbits and Bomb you with 2 tons of Geforce, you GrimHaxor Bloke, which will LDDEstroie you and your little Dog too.")
+			print("I am so sorry, That was really bad")
+			print("PS: They are names of some of the forum users")
+		elseif specialExit==13 then
+			print("Apparently both LuaIDE, xEdit, and Edit+ are things?!")
+		elseif specialExit==-1 then
+			print("Good luck getting this message.")
+		else
+			print("Thank you for using "..codeName.." Version "..version)
+			print("By The Quintuple Agent")
+		end
+	else
+		print("Thank you for using "..codeName.." Version "..version)
+		print("By The Quintuple Agent")
+	end
+	
+	if math.random(1,10)==5 and not settings.superSerious.Set then
+	print("It's still in alpha!, I SWEAR!")
+	print("That the only reason there are bugs!")
+	end
+end

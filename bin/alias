@@ -1,0 +1,13 @@
+--[[
+  moonux-bin:alias
+  Aliasing programs
+  
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+local par = {...}
+if #par =< 0 then print(shell.aliases()); exit() end
+if #par == 1 then shell.clearAlias(par[1]); exit() end
+if #par == 2 then shell.setAlias(par[1], par[2]); exit() end
+if #par > 2 then print("Usage alias [alias] [program]"); exit() end

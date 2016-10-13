@@ -1,0 +1,11 @@
+--[[
+  moonux-bin:rm
+  Remove directories and files
+  
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+local par = {...}
+if #par < 2 then print("Usage: rm <path>") end
+fs.delete(par[1])

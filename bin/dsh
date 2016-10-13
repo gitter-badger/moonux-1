@@ -1,0 +1,40 @@
+--[[
+  moonux-bin:dsh
+  Dael Shell for Moonux
+  
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+-- Load config
+dofile("/cfg/dsh.conf")
+
+local function cuser()
+  local fcuser = fslib.open("/vit/cu.v", "r")
+  cuser = fcuser.read()
+  fcuser.close()
+  return cuser
+end
+
+local function globalize(str)
+  str:gsub("~d", shell.dir())
+  str:gsub("~u", cuser())
+  str:gsub("~h", os.label.get())
+  return str
+end
+
+local function printColored(str)
+  local tbl = split(str, "#")
+  for elem in tbl do
+    for s, colorv in pairs(color.char)
+      if string.startsWith(str, colorv) then
+        print(str, color.char.black, colorv)
+      end
+    end
+  end
+end
+
+if cuser() == "root" then shell.setDir("/root") else shell.setDir("/home/"..cuser()) end
+
+printColored(executeMsg)
+printColored(prompts)

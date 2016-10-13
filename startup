@@ -1,0 +1,22 @@
+--[[
+  moonux-boot:supseq
+  Startup sequence for Moonux.
+  WARNING: DO NOT EDIT. It might break apps, if you want to add an aplication to startup, edit '/boot/minit.d'
+  
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+dofile("/boot/bios.d")
+dofile("/boot/bootl.d")
+local outside = getOuts()
+if outside.continueMinit then
+  os.run("/boot/init/binit.d")
+end
+if outside.bootmedia == "craftOS" then
+  term.clear()
+  return -- Go into craftOS
+elseif outside.bootmedia == "luais" then
+  shell.run("lua") -- Go into Lua Interactive Shell
+  os.shutdown() -- When exited, shutdown (assuming LuaIS is different than CraftOS)
+else shell.run(outside.bootmedia) end -- Run the vm file

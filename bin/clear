@@ -1,0 +1,11 @@
+--[[
+  moonux-bin:clear
+  Clears the screen
+  
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+term.clear()
+term.setCursorPos( 1, 1 )
+

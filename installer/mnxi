@@ -1,0 +1,251 @@
+--[[
+  moonux-pre:install
+  Installer for Moonux
+  
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+-- Presets
+gitcfg = {
+  ['api'] = "https://gitlab.com/api/v3"
+  ['token'] = "k-7eLvqAQKtFKoBp5Xg5",
+  ['id'] = "1432157",
+  ['rawRoot'] = "https://gitlab.com/thecrimulo/moonux/raw"
+}
+
+-- Dependencies
+shell.run("pastebin get 4nRg9CHU mnxjson")
+os.loadAPI("mnxjson")
+
+-- Utils
+function string:split(sep)
+        local sep, fields = sep or ":", {}
+        local pattern = string.format("([^%s]+)", sep)
+        self:gsub(pattern, function(c) fields[#fields+1] = c end)
+        return fields
+end
+function string:words()
+  local t = {}
+  local function helper(word) table.insert(t, word) return "" end
+  if not self:gsub("%w+", helper):find"%S" then return t end
+end
+function string:lines()
+  local t = {}
+  local function helper(line) table.insert(t, line) return "" end
+  helper((self:gsub("(.-)\r?\n", helper)))
+  return t
+end
+
+-- Version parser
+version = {['latest'] = "None", ['latestBranch'] = "None", ['pre'] = "None", ['preBranch'] = "None"}
+
+function version.dl()
+  local remVersionList = http.get(gitcfg.rawRoot.."/master/version").readAll()
+  remVersionList = string.gsub(remVersionList, " ", "")
+  remVersionTable = remVersionList:lines()
+  for entry in remVersionTable do
+    tmpSplit = entry:split()
+    if tmpSplit[1] == "Latest" then version.latest = tmpSplit[2]
+    elseif tmpSplit[1] == "LatestBranch" then version.latestBranch = tmpSplit[2]
+    elseif tmpSplit[1] == "Pre" then version.pre = tmpSplit[2]
+    elseif tmpSplit[1] == "PreBranch" then version.preBranch = tmpSplit[2]
+    end
+  end
+end
+
+-- GitLab API
+git = {}
+
+function git.form(a,b)
+  b = b or ""
+  if not a then return nil end
+  return gitcfg.api..a..b
+end
+
+function git.list(dir,aversion)
+  local query = {
+    "/projects/",
+    gitcfg.id,
+    "/repository/tree?",
+    "private_token=",
+    gitcfg.id,
+    "ref_name=",
+    aversion.latestBranch
+  }
+  if dir ~= nil then query[#query+1]="&path="..dir end
+  listJson = mnxjson.decode(http.get(git.form(table.concat(query)).readAll()))
+  local resp = {}
+  for t in pairs(jsond) do
+    if t.type == "blob" then
+      resp[t.name] = {
+        ['name'] = t.name,
+        ['mode'] = t.mode,
+        ['id'] = t.id,
+        ['iter'] = false
+      }
+    elseif t.type == "tree" then
+      local nestree = git.list(t.name)
+      resp[t.name] = nestree
+    end
+  end
+  resp['iter'] = true
+  return resp
+end
+
+function git.dl(dir,aversion)
+  local rtree = {}
+  if dir ~= nil then rtree = git.list(nil,aversion)
+  else rtree = git.list(dir,aversion) end
+  for name,elem in pairs(rtree)
+    if elem.iter then
+      fs.makeDir(name)
+      shell.setDir(name)
+      git.down(name)
+    else
+      local param = {
+        "/projects/",
+        git.id,
+        "/repository/raw_blobs/",
+        elem.id
+      }
+      local code = http.get(git.form(table.concat(param))).readAll()
+      local fhandle = fs.open(name, "w")
+      fhandle.write(code)
+      fhandle.close()
+    end
+  end
+end
+
+-- UI
+ui = {}
+
+function ui.bg(color)
+  term.setBackgroundColor(color)
+  term.clear()
+end
+
+function ui.center(str,y)
+  local llen = str:len()
+  local halfize = llen % 2
+  if halfize ~= 0 then str = str..","; llen = str:len() end
+  term.setCursorPos(llen / 2, y)
+  term.write(str)
+end
+
+function ui.title(title)
+  ui.center(title,6)
+end
+
+function ui.label(label)
+  ui.center(">"..label.."<",12)
+end
+
+ui.counter = 1
+
+function ui.advance()
+  local lastBg = term.getBackgroundColor()
+  local scp = term.setCursorPos
+  local wr = term.write
+  term.setBackgroundColor(colors.white)
+  scp(25,8)
+  wr("   ")
+  scp(25,9)
+  wr("   ")
+  scp(28,8)
+  wr("   ")
+  term.setBackgroundColor(lastBg)
+  scp(26,9)
+  wr("O")
+  if ui.counter > 8 then ui.counter = 1 end
+  if ui.counter == 1 then scp(26,8); wr("|")
+  elseif ui.counter == 2 then scp(25,8); wr("\\")
+  elseif ui.counter == 3 then scp(25,9); wr("-")
+  elseif ui.counter == 4 then scp(25,10); wr("/")
+  elseif ui.counter == 5 then scp(26,10); wr("|")
+  elseif ui.counter == 6 then scp(27,10); wr("\\")
+  elseif ui.counter == 7 then scp(27,9); wr("-")
+  elseif ui.counter == 8 then scp(27,8); wr("/")
+  end
+  ui.counter = ui.counter + 1
+end
+
+function ui.cycleColor()
+  local iClr = term.getBackgroundColor()
+  if iClr == 1 then iClr = 2 end
+  iClr = iClr + iClr
+  if iClr > 32768 then iClr = 2 end
+  return iClr
+end
+
+-- FSUtil
+mfs = {}
+function mfs.list(dir)
+  dir = dir or "/"
+  local resp = {}
+  local fsl = fs.list(dir)
+  for applicable in pairs(fsl) do
+    if fs.isDir(applicable) then
+      sublist = mfs.list(applicable)
+      resp[#resp+1] = sublist
+    else resp[#resp+1] = applicable end
+  end
+  return resp
+end
+
+function mfs.del()
+  local fstable = mfs.list()
+  local ignoredir = {"rom", "old"}
+  local ignorefile = {"startup", "mnxi"}
+  local recur = function(idx)
+    idx = idx or 1
+    for index, rmable in pairs(fstable[idx]) do
+      if type(rmable) == "table" then
+        local found = false
+        for dr in pairs(ignoredir) do
+          if rmable == dr then found = true end
+        end
+        if not found then recur(index) end
+      else
+        local ffound = false
+        for fl in pairs(ignorefile) do
+          if rmable == fl then ffound = true end
+        end
+        if not ffound then fs.remove(rmable) end
+      end
+    end
+  end
+end
+
+-- "Actually the crowbar snaps in two" ~ /r/JonTron
+ui.bg(ui.cycleColor())
+ui.title("MS10 Installer")
+ui.label("Actually the crowbar snaps in two")
+ui.advance()
+function sl() sleep(3.75) end
+sl(); ui.label("Hello there")
+sl(); ui.label("Welcome to the MS10 Installer")
+sl(); ui.label("We will format your computer")
+sl(); ui.label("and also install Moonux.")
+ui.bg(ui.cycleColor()); ui.title("MS10 Installer"); ui.advance()
+sl(); ui.label("Please, take a cup of coffee")
+sl(); ui.label("just while we install Moonux")
+sl(); ui.label("Thank you for being patient"); sl()
+ui.label("Removing all files except:"); sl()
+ui.bg(ui.cycleColor()); ui.title("MS10 Installer"); ui.advance()
+ui.label("/rom/*, /old/*, /startup, /mnxi"); sl()
+ui.bg(ui.cycleColor()); ui.title("MS10 Installer"); ui.advance()
+mfs.del()
+ui.bg(ui.cycleColor()); ui.title("MS10 Installer"); ui.advance()
+ui.label("It looks like its all ogre now"); sleep(0.20)
+ui.bg(ui.cycleColor()); ui.title("MS10 Installer"); ui.advance()
+ui.label("It looks like its all empty now")
+ui.label("Downloading the repository")
+ui.bg(ui.cycleColor()); ui.title("MS10 Installer"); ui.advance()
+git.dl(nil, version)
+ui.bg(ui.cycleColor()); ui.title("MS10 Installer"); ui.advance()
+sl(); ui.label("Everything is ready now")
+sl(); ui.label("The computer is going to be rebooted")
+sl(); ui.label("Thanks for choosing Moonux")
+sl(); ui.label("Goodbye."); sl()
+os.reboot()
