@@ -1,0 +1,26 @@
+Moonux SR12B ==============: By thecrimulo
+System Manual and Reference: /man/msti.man
+===========================: Moonux ST Index
+
+Moonux Standard Type Index
+---------------------------
+The MSTI is the set of types and categories used to
+classify files.
+
+Types
+---------------------------
+Source code ~~~~~~~~~~~~~~~
+msti.source.lua     - Lua source code
+msti.source.bf      - Brainfuck source code
+msti.source.valerie - Valerie source code
+msti.source.dshell  - DShell source code
+Text ~~~~~~~~~~~~~~~~~~~~~~
+msti.text.plain     - Plain text
+msti.text.markdown  - Markdown text
+msti.text.manual    - SMR Manual page
+Media ~~~~~~~~~~~~~~~~~~~~~
+msti.media.micro    - nitrogenfinger's Micropaint
+msti.media.nft      - nitrogenfinger's Text
+msti.media.paint    - Paintutils image
+msti.media.sketch   - oeed's Sketch paint
+msti.media.gif      - BombBloke's GIF and Blittle

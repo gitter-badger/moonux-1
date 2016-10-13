@@ -1,0 +1,117 @@
+Moonux SR12B ==============: By thecrimulo
+System Manual and Reference: /man/libformat.man
+===========================: Library format and API
+
+Loading libraries
+---------------------------
+To load a library, use lib.load()
+~ local myApi = lib.load("file.l")
+~ myApi.anything()
+To unload it, use api.unload()
+~ api.unload(myApi)
+
+How does it work
+---------------------------
+The Lib Library uses the snippets from bios.lua,
+and modifies them to use library objects, return
+those and provide various metadata.
+
+_ENV depends on how this api is loaded and the
+context. If this library is loaded to the SU 
+environment instead of the normal user one, it will
+use the one it will be called with. So it needs to 
+be loaded (this library) when any of the users logs
+in.
+
+Library format
+---------------------------
+Any file intended to be a library must have:
+- A .l extension
+- A global variable called '_LOADABLE' set to true.
+- A global variable called the same way as the lib
+(without the .l extension) where will be all the
+things that should be exported.
+
+Converting to Moonux Format
+---------------------------
+To convert to Moonux Format, you can use add the
+needed variables and use pattern matching for
+not editing local functions and only global ones,
+so you put them inside the exporting variable.
+
+The environment problem
+---------------------------
+If lib.l will take a file, and it passes the
+environment the library is running in, it would
+depend on when lib.l is loaded, before login, like
+the rest of libraries or after. If it's loaded
+after, then lib.l would have no way to break the
+sandbox into the superuser environment without
+leaving a big hole in the security. So all points
+that it should be loaded before login, while it's
+booting as superuser. Then, as lib.l is running on
+the global environment I can know what user is
+logged, and if it's running as superuser (execsu)
+pass the root environment, otherwise pass a
+sandboxed environment which should be identic
+to the one that the program was loaded with, but
+the problem now is to automatically pass the
+environment, if possible, with the same limitations
+than the original, giving that a sandbox is running
+inside another sandbox, or maybe just ignore it and
+leave that kind of security issues to the user who
+made the sandbox, that would be the correct.
+
+Flooding the environment
+---------------------------
+As proposed for the Silica Framework on a github
+issue (https://github.com/oeed/Silica/issues/1) the
+environment can get easily flooded and libraries
+and other variables could override themselves hence
+causing a major bug in the system. The solution
+would be encouraging the users to use lib.unload()
+in their programs just right when they stopped
+needing it in the rest of the program. In the issue
+it is recalled that the environment on Bedrock was
+flooded and working with multiple of them breaks it
+and that it should be using custom environments for
+the programs so they wouldn't overwrite themselves.
+This is an easy problem to solve, if we just focus
+on the superuser environment, but if the user
+environment, which is inherited by the programs
+ran by it and not using a copy (like a normal CC
+environment would do), there is the possibility
+that even unloading all APIs, other variables
+could make it dirtier. A somewhat easy solution
+would be treating code as libraries so what they
+need to export will be put on its own environment
+table and the rest would be local, but then it
+would be reundant to make an exact copy of
+lib.load() just for changing name. We have two
+options here, changing the way loading works and
+therefore adding more incompatibility or just
+telling the user to use lib.load for everything and
+handle the returning values (and putting them into
+the global environment) by themselves. As the best
+option would be the first, we have to rethink how
+we want to treat the environment and how we want to
+manage code and libraries, to somewhat make a
+difference between them.
+
+Loading process
+---------------------------
+> Use api.load
+> Set environment
+-> Check if running as root
+--> If root, pass _ENV
+--> If not root, pass cenv
+
+Terminology
+---------------------------
+Export variable : The variable called the same way
+                : that the file (excluding the 
+                : extension) that contains 
+                : everything to be exported.
+Load variable   : The variable called _LOADABLE
+								: that determines if it's a library
+								: or not.

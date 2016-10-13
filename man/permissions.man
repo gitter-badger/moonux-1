@@ -1,0 +1,45 @@
+Moonux SR12B ==============: By thecrimulo
+System Manual and Reference: /man/permissions.man
+===========================: Permissions Library
+
+How permissions works
+---------------------------
+The permissions library (/lib/perm.l) is a complex
+library that has functions to manage users, login,
+logout, passwords, file permissions and keychain.
+This also manages execsu, superuser permissions
+and root.
+
+The permissions work in a way that users have to be
+created using an existing user, which will not be
+based from, but just used to authenticate that a
+guest (which is not an user, but just doesn't have
+an account) doesn't create one for itself to go in.
+
+The users are only removed with permission of the
+own user. Be careful, as removing the user won't
+move you to root, instead it will put you back on
+the login screen, which means that if you dont have
+root password you are stuck unless you use a disk
+drive to force the unlock of the OS, but that would
+make it vulnerable as it can access all your data.
+It is recommended to use a program like EncryptFS,
+which will be adapted to Moonux in a future.
+
+Passwords are hashed and securely stored in files
+(/home/.hashrc/*.phr) that are encrypted.
+
+Check /man/tlco.man#SR12B Sandbox Scheme to see
+what permissions are given to normal users and to
+Superuser
+
+Superuser
+---------------------------
+The superuser is the user of Moonux with root
+privileges that has access to the global
+environment, which is the one blocked by the init
+file (/boot/os/mnx.i)
+
+Using the library
+---------------------------
+WIP
