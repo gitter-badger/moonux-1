@@ -1,0 +1,12 @@
+--[[
+  mnx11: Moonux Satellite 11
+  NAME:        /core/gd
+  CATEGORY:    corebin
+  VERSION:     11:21016A
+  DESCRIPTION: Gets current directory
+
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+print(_dopt.cd)

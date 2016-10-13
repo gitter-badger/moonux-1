@@ -1,0 +1,17 @@
+--[[
+  mnx11: Moonux Satellite 11
+  NAME:        /boot/init
+  CATEGORY:    boot
+  VERSION:     11:310916A
+  DESCRIPTION: Execute at boot (bootseq, startup)
+
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+
+_G['MOONUX_INIT'] = true
+_G['SYSDEBUG'] = true
+_G['RESCUE'] = true
+print("[/boot/init] Booted successfully")
+

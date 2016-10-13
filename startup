@@ -1,0 +1,2 @@
+dofile("/boot/init")
+shell.run("/vit/vinit.d true true")

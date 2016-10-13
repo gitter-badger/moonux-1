@@ -1,0 +1,17 @@
+--[[
+  mnx11: Moonux Satellite 11
+  NAME:        /core/md
+  CATEGORY:    corebin
+  VERSION:     11:21016A
+  DESCRIPTION: Make directory
+
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+a = {...}
+if #a < 1 then debug.error("md", "15", "Not enough arguments.") end
+if a[1] == "-h" then print("Usage: md <directory>") end
+if not fs.exists(a[1]) then debug.error("rd", "15", "Directory doesn't exist") end
+if not fs.isDir(a[1]) then debug.error("rd", "15", "Not a directory") end
+fs.makeDir(a[1])

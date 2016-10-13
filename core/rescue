@@ -1,0 +1,19 @@
+--[[
+  mnx11: Moonux Satellite 11
+  NAME:        /core/rescue
+  CATEGORY:    corebin
+  VERSION:     11:160916A
+  DESCRIPTION: Rescue shell
+
+  Made by thecrimulo
+  ~ Moonux Project
+]]-- NOTE: Use only in boot, or OS rescue mode. Also used for developer debugging
+
+print("Rescue shell")
+print("Moonux Satellite 11")
+print("Type 'help' for availiable commands")
+while true do
+	io.write("root@rescue $ ")
+	local prompt = read()
+	if prompt == "exit" then MOONUX_SHUTDOWN = true end
+	if prompt == "exit -f" then os.power.forceoff(0) end

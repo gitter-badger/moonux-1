@@ -1,0 +1,191 @@
+--[[
+  moonux-pre:install
+  Installer for Moonux
+  
+  Made by thecrimulo
+  ~ Moonux Project
+]]--
+
+-- Presets
+gitcfg = {
+  ['api'] = "https://gitlab.com/api/v3"
+  ['token'] = "k-7eLvqAQKtFKoBp5Xg5",
+  ['id'] = "1432157",
+  ['rawRoot'] = "https://gitlab.com/thecrimulo/moonux/raw"
+}
+
+-- Dependencies
+shell.run("pastebin get 4nRg9CHU mnxjson")
+os.loadAPI("mnxjson")
+
+-- Utils
+function string:split(sep)
+        local sep, fields = sep or ":", {}
+        local pattern = string.format("([^%s]+)", sep)
+        self:gsub(pattern, function(c) fields[#fields+1] = c end)
+        return fields
+end
+function string:words()
+  local t = {}
+  local function helper(word) table.insert(t, word) return "" end
+  if not self:gsub("%w+", helper):find"%S" then return t end
+end
+function string:lines()
+  local t = {}
+  local function helper(line) table.insert(t, line) return "" end
+  helper((self:gsub("(.-)\r?\n", helper)))
+  return t
+end
+
+-- Version parser
+version = {['latest'] = "None", ['latestBranch'] = "None", ['pre'] = "None", ['preBranch'] = "None"}
+
+function version.dl()
+  local remVersionList = http.get(gitcfg.rawRoot.."/master/version").readAll()
+  remVersionList = string.gsub(remVersionList, " ", "")
+  remVersionTable = remVersionList:lines()
+  for entry in remVersionTable do
+    tmpSplit = entry:split()
+    if tmpSplit[1] == "Latest" then version.latest = tmpSplit[2]
+    elseif tmpSplit[1] == "LatestBranch" then version.latestBranch = tmpSplit[2]
+    elseif tmpSplit[1] == "Pre" then version.pre = tmpSplit[2]
+    elseif tmpSplit[1] == "PreBranch" then version.preBranch = tmpSplit[2]
+    end
+  end
+end
+
+-- GitLab API
+git = {}
+
+function git.form(a,b)
+  b = b or ""
+  if not a then return nil end
+  return gitcfg.api..a..b
+end
+
+function git.list(dir,aversion)
+  local query = {
+    "/projects/",
+    gitcfg.id,
+    "/repository/tree?",
+    "private_token=",
+    gitcfg.id,
+    "ref_name=",
+    aversion.latestBranch
+  }
+  if dir ~= nil then query[#query+1]="&path="..dir end
+  listJson = mnxjson.decode(http.get(git.form(table.concat(query)).readAll()))
+  local resp = {}
+  for t in pairs(jsond) do
+    if t.type == "blob" then
+      resp[t.name] = {
+        ['name'] = t.name,
+        ['mode'] = t.mode,
+        ['id'] = t.id,
+        ['iter'] = false
+      }
+    elseif t.type == "tree" then
+      local nestree = git.list(t.name)
+      resp[t.name] = nestree
+    end
+  end
+  resp['iter'] = true
+  return resp
+end
+
+function git.dl(dir,aversion)
+  local rtree = {}
+  if dir ~= nil then rtree = git.list(nil,aversion)
+  else rtree = git.list(dir,aversion) end
+  for name,elem in pairs(rtree)
+    if elem.iter then
+      fs.makeDir(name)
+      shell.setDir(name)
+      git.down(name)
+    else
+      local param = {
+        "/projects/",
+        git.id,
+        "/repository/raw_blobs/",
+        elem.id
+      }
+      local code = http.get(git.form(table.concat(param))).readAll()
+      print("[gitlabdl] Downloading "..name)
+      local fhandle = fs.open(name, "w")
+      fhandle.write(code)
+      fhandle.close()
+    end
+  end
+end
+
+-- FSUtil
+mfs = {}
+function mfs.list(dir)
+  dir = dir or "/"
+  local resp = {}
+  local fsl = fs.list(dir)
+  for applicable in pairs(fsl) do
+    if fs.isDir(applicable) then
+      sublist = mfs.list(applicable)
+      resp[#resp+1] = sublist
+    else resp[#resp+1] = applicable end
+  end
+  return resp
+end
+
+function mfs.del()
+  local fstable = mfs.list()
+  local ignoredir = {"rom", "old"}
+  local ignorefile = {"startup", "mnxi"}
+  local recur = function(idx)
+    idx = idx or 1
+    for index, rmable in pairs(fstable[idx]) do
+      if type(rmable) == "table" then
+        local found = false
+        for dr in pairs(ignoredir) do
+          if rmable == dr then found = true end
+        end
+        if not found then recur(index) end
+      else
+        local ffound = false
+        for fl in pairs(ignorefile) do
+          if rmable == fl then ffound = true end
+        end
+        if not ffound then fs.remove(rmable); print("[mfsdel] Removed "..rmable) end
+      end
+    end
+  end
+end
+
+print("MNX11 Satellite ========================== Installer")
+print("Executing the installer will wipe the")
+print("computer, you can terminate this installer")
+print("now by pressing CTRL-T, or press any key")
+print("to continue.")
+os.pullEvent()
+print("")
+print("Step 1: Format the HDD")
+mfs.del()
+print("[mfsdel] DONE!")
+print()
+print("Step 2: Download from Gitlab")
+git.dl(nil, version)
+print("[gitlabdl] DONE!")
+print()
+print("Step 3: Reboot the computer")
+print("Rebooting in 30 seconds")
+sleep(15)
+print("Rebooting in 15 seconds")
+sleep(5)
+print("Rebooting in 10 seconds")
+sleep(5)
+print("Rebooting in 5 seconds")
+sleep(2)
+print("Rebooting in 3 seconds")
+sleep(1)
+print("Rebooting in 2 seconds")
+sleep(1)
+print("Rebooting in 1 second")
+sleep(1)
+print("Rebooting now!")
+os.reboot()
