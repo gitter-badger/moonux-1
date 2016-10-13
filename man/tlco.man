@@ -1,0 +1,52 @@
+Moonux SR12B ==============: By thecrimulo
+System Manual and Reference: /man/tlco.man
+===========================: Top Level Coroutines
+
+Top Level Coroutine Override
+---------------------------
+A TLCO is the replacement of the parallel function
+that is ran at startup, and that executes rednet
+and shell for your custom coroutine manager
+
+Breaking the parallel
+---------------------------
+As parallel.waitForAny will end when one of them
+crashes or stops running. To break it, first we
+have to get ready the coroutine manager we are 
+going to use. Then, we will put a wrapper around
+printError, which will be the function that will be
+called when the coroutine crashes.
+We have to wrap it so we start the coroutine
+manager and we keep print error.
+
+~ local oldPrintError = printError
+~ function printError()
+~		local printError = oldPrintError
+~   thread.new(--[[Next file here]])
+~   thread.runAll()
+~ end
+
+Then, we will send a modem event which first
+argument is a number, to crash rednet.
+
+~ os.queueEvent("modem_message", 0)
+
+Using thread.l
+---------------------------
+The library does all the work in the background,
+and the library is very easy to use.
+@ thread.new( ioFile )
+Pass an absolute path as first argument, and it
+will create the object automatically. Returns a
+thread object
+@ thread:queue( event, tArgs )
+Pass the thread, an event name and arguments, to
+an individual process, with its own queue. To see
+the queue do myThread.queue
+@ thread:kill()
+Kills the process
+@ thread:run()
+Queues a thread to run
+@ thread.runAll()
+Do not run again, this loops infinitely executing
+files.

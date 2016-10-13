@@ -1,0 +1,29 @@
+Moonux SR12B ==============: By thecrimulo
+System Manual and Reference: /man/rfirecord.man
+===========================: RFI Record
+
+Requests for Improvement
+---------------------------
+A RFI is an specification where an external
+developer or suggests the implementation of
+a new improvement, bugfix or feature.
+
+Submitting a RFI                                   
+---------------------------
+In this file, create a new header with using
+the RFI 0 template. RFIs have to include the
+destination branch of TheCrimulo/moonux, and
+the commit from your fork that should be
+merged. Then, send a pull request to the git
+repository and we will review it.
+
+RFI Records ===============
+
+RFI 0
+---------------------------
+Submitted by thecrimulo
+@ To   TheCrimulo/moonux, branch SR12B
+@ From TheCrimulo/moonux, branch SR12B #HEAD
+~~ Changes ~~~~~~~~~~~~~~~~
+Added RFI system. Added MSTI.
+---------------------------

@@ -1,0 +1,28 @@
+KernlORG License ============: Copyright (c) 2016 daelvn
+Version α2, 23 September 2016: https://kernlorg.rf.gd
+http://license.kernlorg.rf.gd: daelvn@gmail.com
+=============================:
+
+Permission is granted to the copyright holders to use the source code and
+documentation following this Terms and Conditions:
+
+1. Share-alike
+  The source code, binaries or documentation ("Software") shall be shared
+  with the same, unmodified license. The copyright holder is permitted to
+  modify, edit, rename, merge, publish, use or copy as long as it uses
+  the same license. However, the copy, modification, use or publication
+  of the Software without the license is not allowed
+
+2. Non-commercial
+  The copyright holders are not allowed, with or without permission of the
+  original author, to commercialize the Software, as it is a piece of Open
+  Source and if it's compiled to a binary, without the share of the source
+  code, license shall be revoked and the copyright holder will not longer
+  have permission to share the binary file. However, the copyright holders
+  are not banned from using the source code, as long as it keeps open.
+
+3. Trademarks
+  This License does not grant permission to use the trade
+  names, trademarks, service marks, or product names of the Licensor.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

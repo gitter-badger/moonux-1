@@ -1,0 +1,20 @@
+--[[
+	MNX SR12b : Moonux Satellite Rewrite 12B
+	Made by thecrimulo
+
+	NAME: /startup
+	SET:  Boot RW12B
+	TYPE: msti.code.lua
+	DESCRIPTION
+		This file is executed by /rom/programs/shell at
+	  startup when the shell has no parent process. 
+	  This file will execute the custom startup file,
+	  /boot/os/mnx.i . If you want to execute an old
+		version, execute /boot/os/mnx.old.version.i
+
+		If you want to know how the boot sequence 
+		works, check /man/bseq.man
+]]--
+
+-- Startup /boot/os/mnx.i
+loadfile("/boot/os/mnx.i")()

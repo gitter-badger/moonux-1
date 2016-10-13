@@ -1,0 +1,32 @@
+Moonux SR12B ==============: By thecrimulo
+System Manual and Reference: /man/bseq.man
+===========================: Boot Sequence SR12B
+
+Boot sequence
+---------------------------
+The boot sequence is the set of orders and scripts
+that execute in order to startup an Operating
+System in ComputerCraft.
+
+SR12B Rocket
+---------------------------
+Rocket is the boot sequence of Moonux SR12B, which
+is derived from SR12.
+
+Rocket sequence
+---------------------------
+@ Turn on the computer
+# This happens when you click on an off computer.
+
+@ /startup
+# This file is the first one to execute, because it
+is executed by /rom/programs/shell. This file shall
+contain as last line, the function that will
+start the boot sequence. However, you can remove it
+to default to CraftOS and make your own bootloader.
+
+@ /boot/os/mnx.i
+# This file will boot up and set the environment
+for the latest Moonux version. This executes the
+Top Level Coroutine Override.
+
